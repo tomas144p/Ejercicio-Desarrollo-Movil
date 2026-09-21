@@ -41,13 +41,13 @@ class Card(BoxLayout):
     def __init__(self, bg=WHITE, radius=16, border=None, **kwargs):
         super().__init__(**kwargs)
         self.padding = dp(16)
-        with self.canvas.before:
+        with self.canvas.before:    # type: ignore
             Color(*rgba(bg))
             self.rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(radius)])
             if border:
                 Color(*rgba(border))
                 self.line = Line(rounded_rectangle=(self.x, self.y, self.width, self.height, dp(radius)), width=1)
-        self.bind(pos=self._update, size=self._update)
+        self.bind(pos=self._update, size=self._update)  # type: ignore
 
     def _update(self, *_):
         self.rect.pos = self.pos
@@ -91,7 +91,7 @@ class Header(BoxLayout):
                          padding=(dp(16), dp(10)), spacing=dp(12), **kwargs)
         if back:
             b = make_button("‹", "#E2E8F0", TEXT, 42, size_hint_x=None, width=dp(44))
-            b.bind(on_release=lambda *_: app.go("login"))
+            b.bind(on_release=lambda *_: app.go("login"))   # type: ignore
             self.add_widget(b)
         else:
             self.add_widget(BoxLayout(size_hint_x=None, width=dp(44)))
@@ -105,7 +105,7 @@ class Header(BoxLayout):
             WHITE if app.is_online else "#475569",
             36, size_hint_x=None, width=dp(98)
         )
-        online.bind(on_release=lambda *_: app.toggle_online())
+        online.bind(on_release=lambda *_: app.toggle_online())  # type: ignore
         self.add_widget(online)
 
 
@@ -114,10 +114,10 @@ class BaseScreen(Screen):
         # BoxLayout no tiene la propiedad background_color en Kivy.
         # Dibujamos el fondo mediante canvas para mantener el diseño.
         root = BoxLayout(orientation="vertical")
-        with root.canvas.before:
+        with root.canvas.before:    # type: ignore
             bg_color = Color(*rgba(BG))
             bg_rect = Rectangle(pos=root.pos, size=root.size)
-        root.bind(
+        root.bind(  # type: ignore
             pos=lambda instance, value: setattr(bg_rect, "pos", value),
             size=lambda instance, value: setattr(bg_rect, "size", value),
         )
@@ -128,7 +128,7 @@ class BaseScreen(Screen):
         s = ScrollView()
         content = BoxLayout(orientation="vertical", padding=dp(24), spacing=dp(18),
                             size_hint_y=None)
-        content.bind(minimum_height=content.setter("height"))
+        content.bind(minimum_height=content.setter("height"))   # type: ignore
         s.add_widget(content)
         return s, content
 
@@ -154,22 +154,22 @@ class LoginScreen(BaseScreen):
         card.add_widget(lbl("Elige el perfil para explorar el prototipo.", 14, MUTED, halign="center", size_hint_y=None, height=dp(35)))
 
         g = make_button("👨‍👩‍👧  Ingresar como Apoderado", PURPLE, WHITE, 56)
-        g.bind(on_release=lambda *_: self.manager.app.go("guardian"))
+        g.bind(on_release=lambda *_: self.manager.app.go("guardian"))   # type: ignore
         card.add_widget(g)
 
         st = make_button("🎓  Ingresar como Estudiante", BLUE, WHITE, 56)
-        st.bind(on_release=lambda *_: self.manager.app.go("student"))
+        st.bind(on_release=lambda *_: self.manager.app.go("student"))   # type: ignore
         card.add_widget(st)
 
         te = make_button("👨‍🏫  Vista Profesor", "#0F172A", WHITE, 50)
-        te.bind(on_release=lambda *_: self.manager.app.go("teacher"))
+        te.bind(on_release=lambda *_: self.manager.app.go("teacher"))   # type: ignore
         card.add_widget(te)
 
         offline = make_button(
-            "Cambiar estado: " + ("Online" if App.get_running_app().is_online else "Offline"),
+            "Cambiar estado: " + ("Online" if App.get_running_app().is_online else "Offline"),  # type: ignore
             "#F1F5F9", TEXT, 44
         )
-        offline.bind(on_release=lambda *_: self.manager.app.toggle_online())
+        offline.bind(on_release=lambda *_: self.manager.app.toggle_online())    # type: ignore
         card.add_widget(offline)
 
         root.add_widget(card)
@@ -196,7 +196,7 @@ class GuardianScreen(BaseScreen):
         for key, text in [("home","Inicio"),("tasks","Tareas"),("chat","IA"),("tracking","Seguimiento"),("notifications","Avisos")]:
             b = make_button(text, PURPLE if self.active_tab == key else "#EDE9FE",
                             WHITE if self.active_tab == key else PURPLE, 40)
-            b.bind(on_release=lambda _, k=key: self.set_tab(k))
+            b.bind(on_release=lambda _, k=key: self.set_tab(k)) # type: ignore
             tabs.add_widget(b)
         root.add_widget(tabs)
 
@@ -257,7 +257,7 @@ class GuardianScreen(BaseScreen):
         task.add_widget(lbl("Ejercicios de Fracciones", 15, TEXT, True))
         task.add_widget(lbl("Matemáticas • OA7 • 45 min • Dificultad media", 13, MUTED))
         view = make_button("Revisar tarea antes de asignar", BLUE, WHITE, 42)
-        view.bind(on_release=lambda *_: self.task_detail())
+        view.bind(on_release=lambda *_: self.task_detail()) # type: ignore
         task.add_widget(view)
         c.add_widget(task)
 
@@ -272,8 +272,8 @@ class GuardianScreen(BaseScreen):
         actions.add_widget(p); actions.add_widget(a)
         box.add_widget(actions)
         pop = Popup(title="Revisar tarea", content=box, size_hint=(.88, None), height=dp(360))
-        a.bind(on_release=lambda *_: pop.dismiss())
-        p.bind(on_release=lambda *_: pop.dismiss())
+        a.bind(on_release=lambda *_: pop.dismiss()) # type: ignore
+        p.bind(on_release=lambda *_: pop.dismiss()) # type: ignore
         pop.open()
 
     def tasks_view(self, c):
@@ -292,7 +292,7 @@ class GuardianScreen(BaseScreen):
             card.add_widget(lbl(status_text, 13, PURPLE if status=="pending" else GREEN))
             if status == "pending":
                 b = make_button("Ver y aprobar", PURPLE, WHITE, 40)
-                b.bind(on_release=lambda *_: self.task_detail())
+                b.bind(on_release=lambda *_: self.task_detail())    # type: ignore
                 card.add_widget(b)
             c.add_widget(card)
 
@@ -303,7 +303,7 @@ class GuardianScreen(BaseScreen):
         card.add_widget(lbl("Hola, soy el Asistente Educativo de Tutor Educa. Puedo explicarte contenidos, recomendar estrategias y señalar áreas de refuerzo.", 14, TEXT))
         for q in ["¿Cómo ayudar con fracciones?", "¿Qué debería reforzar esta semana?", "¿Qué significa este objetivo?"]:
             b = make_button(q, "#F3E8FF", PURPLE, 40)
-            b.bind(on_release=lambda _, query=q: self.ai_answer(query))
+            b.bind(on_release=lambda _, query=q: self.ai_answer(query)) # type: ignore
             card.add_widget(b)
         c.add_widget(card)
 
@@ -361,7 +361,7 @@ class StudentScreen(BaseScreen):
         online = Card(bg="#EFF6FF", border="#BFDBFE", size_hint_y=None, height=dp(88), orientation="vertical")
         online.add_widget(lbl(("🟢 Modo Online" if self.manager.app.is_online else "⚪ Modo Offline"), 16, BLUE, True))
         online.add_widget(lbl("Las asignaturas visibles son administradas por tu profesor. " +
-                              ("" if self.manager.app.is_online else "Algunas funciones requieren conexión."), 13, "#1E40AF"))
+                                ("" if self.manager.app.is_online else "Algunas funciones requieren conexión."), 13, "#1E40AF"))
         c.add_widget(online)
 
         grid = GridLayout(cols=2, spacing=dp(12), size_hint_y=None)
@@ -376,7 +376,7 @@ class StudentScreen(BaseScreen):
                 b = make_button("Entrar" if s["id"]=="math" else "Contenido próximamente", BLUE if s["id"]=="math" else "#E2E8F0",
                                 WHITE if s["id"]=="math" else MUTED, 38)
                 if s["id"] == "math":
-                    b.bind(on_release=lambda *_: self.manager.app.go("topic"))
+                    b.bind(on_release=lambda *_: self.manager.app.go("topic"))  # type: ignore
                 else:
                     b.disabled = True
             else:
@@ -384,16 +384,16 @@ class StudentScreen(BaseScreen):
                 b.disabled = True
             card.add_widget(b)
             grid.add_widget(card)
-        grid.bind(minimum_height=grid.setter("height"))
+        grid.bind(minimum_height=grid.setter("height")) # type: ignore
         c.add_widget(grid)
 
         quick = Card(size_hint_y=None, height=dp(185), orientation="vertical", spacing=dp(7))
         quick.add_widget(lbl("Accesos rápidos", 18, TEXT, True))
         for text, screen in [("▶ Continuar: Ecuaciones lineales", "topic"),
-                             ("📈 Practicar ejercicios", "topic"),
-                             ("🧠 Preguntar a la IA", "ai")]:
+                                ("📈 Practicar ejercicios", "topic"),
+                                ("🧠 Preguntar a la IA", "ai")]:
             b = make_button(text, "#F8FAFC", TEXT, 40)
-            b.bind(on_release=lambda _, s=screen: self.manager.app.go(s))
+            b.bind(on_release=lambda _, s=screen: self.manager.app.go(s))   # type: ignore
             quick.add_widget(b)
         c.add_widget(quick)
 
@@ -415,7 +415,7 @@ class TopicScreen(BaseScreen):
         tabs = BoxLayout(size_hint_y=None, height=dp(50), padding=(dp(10), dp(5)), spacing=dp(6))
         for key, text in [("explanation","Explicación"),("examples","Ejemplos"),("exercises","Ejercicios")]:
             b = make_button(text, BLUE if self.section==key else "#E2E8F0", WHITE if self.section==key else TEXT, 40)
-            b.bind(on_release=lambda _, k=key: self.change(k))
+            b.bind(on_release=lambda _, k=key: self.change(k))  # type: ignore
             tabs.add_widget(b)
         root.add_widget(tabs)
         scroll,c=self.scroll()
@@ -468,10 +468,10 @@ class TopicScreen(BaseScreen):
         verify=make_button("Verificar",BLUE,WHITE,44)
         hint=make_button("Ver pista",PURPLE,WHITE,44)
         actions.add_widget(verify); actions.add_widget(hint); card.add_widget(actions)
-        verify.bind(on_release=lambda *_: setattr(msg,"text",
+        verify.bind(on_release=lambda *_: setattr(msg,"text",   # type: ignore
             "¡Correcto! Excelente trabajo." if inp.text.strip()=="5"
             else "Intenta de nuevo. Recuerda: primero suma 5 a ambos lados."))
-        hint.bind(on_release=lambda *_: self.manager.app.go("ai"))
+        hint.bind(on_release=lambda *_: self.manager.app.go("ai"))  # type: ignore
         c.add_widget(card)
 
 
@@ -492,36 +492,36 @@ class AIChatScreen(BaseScreen):
         modes=BoxLayout(size_hint_y=None,height=dp(50),padding=(dp(10),dp(5)),spacing=dp(6))
         for m,t in [("student","🎓 Modo Estudiante"),("guardian","👨‍👩‍👧 Modo Apoderado")]:
             b=make_button(t, BLUE if self.mode==m else "#E2E8F0", WHITE if self.mode==m else TEXT,40)
-            b.bind(on_release=lambda _,x=m:self.set_mode(x))
+            b.bind(on_release=lambda _,x=m:self.set_mode(x))    # type: ignore
             modes.add_widget(b)
         root.add_widget(modes)
 
         scroll,c=self.scroll()
         root.add_widget(scroll)
         intro = ("¡Hola! Soy tu asistente de matemáticas. ¿En qué puedo ayudarte hoy?"
-                 if self.mode=="student" else
-                 "Hola, soy el Asistente Educativo de Tutor Educa. Puedo explicarte qué está aprendiendo tu hijo/a, entregar recomendaciones y sugerir estrategias de estudio.")
+                    if self.mode=="student" else
+                    "Hola, soy el Asistente Educativo de Tutor Educa. Puedo explicarte qué está aprendiendo tu hijo/a, entregar recomendaciones y sugerir estrategias de estudio.")
         c.add_widget(Card(size_hint_y=None,height=dp(100),orientation="vertical").__class__() if False else lbl("🤖 "+intro,14,TEXT,size_hint_y=None,height=dp(100)))
         for role,text in self.messages:
             color=BLUE if role=="user" else "#FFFFFF"
             c.add_widget(Card(bg=color,size_hint_y=None,height=dp(75),orientation="vertical").__class__() if False else
-                          lbl(("Tú: " if role=="user" else "IA: ")+text,14,WHITE if role=="user" else TEXT,size_hint_y=None,height=dp(75)))
+                            lbl(("Tú: " if role=="user" else "IA: ")+text,14,WHITE if role=="user" else TEXT,size_hint_y=None,height=dp(75)))
         if self.mode=="guardian":
             for q in ["¿Cómo ayudar con fracciones?","¿Qué reforzar esta semana?","¿Qué significa este objetivo?"]:
                 b=make_button(q,"#F3E8FF",PURPLE,38)
-                b.bind(on_release=lambda _,x=q:self.send_message(x))
+                b.bind(on_release=lambda _,x=q:self.send_message(x))    # type: ignore
                 c.add_widget(b)
         root.add_widget(self.input_bar())
 
     def input_bar(self):
         box=BoxLayout(size_hint_y=None,height=dp(62),padding=dp(8),spacing=dp(8))
         inp=TextInput(hint_text="Escribe tu duda..." if self.manager.app.is_online else "Sin conexión a internet",
-                      multiline=False)
+                        multiline=False)
         send=make_button("Enviar",BLUE,WHITE,44,size_hint_x=None,width=dp(90))
         def go(_):
             if inp.text.strip() and self.manager.app.is_online:
                 self.send_message(inp.text.strip())
-        send.bind(on_release=go)
+        send.bind(on_release=go)    # type: ignore
         box.add_widget(inp); box.add_widget(send)
         return box
 
@@ -535,8 +535,8 @@ class AIChatScreen(BaseScreen):
             return
         self.messages.append(("user",text))
         reply=("Excelente pregunta. Déjame explicártelo paso a paso con un ejemplo concreto..."
-               if self.mode=="student" else
-               "Para apoyar a tu hijo/a, puedes practicar con situaciones cotidianas y dedicar 15–20 minutos diarios. También puedo ayudarte a interpretar su progreso.")
+                if self.mode=="student" else
+                "Para apoyar a tu hijo/a, puedes practicar con situaciones cotidianas y dedicar 15–20 minutos diarios. También puedo ayudarte a interpretar su progreso.")
         self.messages.append(("ai",reply))
         self.render()
 
@@ -589,7 +589,7 @@ class TeacherScreen(BaseScreen):
         tabs=BoxLayout(size_hint_y=None,height=dp(50),padding=(dp(10),dp(5)),spacing=dp(6))
         for k,t in [("subjects","Materias"),("students","Estudiantes"),("performance","Rendimiento"),("notices","Avisos")]:
             b=make_button(t,BLUE if self.tab==k else "#E2E8F0",WHITE if self.tab==k else TEXT,40)
-            b.bind(on_release=lambda _,x=k:self.set_tab(x)); tabs.add_widget(b)
+            b.bind(on_release=lambda _,x=k:self.set_tab(x)); tabs.add_widget(b) # type: ignore
         root.add_widget(tabs)
         scroll,c=self.scroll(); root.add_widget(scroll)
         if self.tab=="subjects": self.subjects_view(c)
@@ -609,9 +609,9 @@ class TeacherScreen(BaseScreen):
             info.add_widget(lbl("✓ Activa" if s["active"] else "🔒 Desactivada",12,GREEN if s["active"] else MUTED))
             card.add_widget(info)
             toggle=make_button("ACTIVA" if s["active"] else "ACTIVAR",
-                               GREEN if s["active"] else "#E2E8F0",
-                               WHITE if s["active"] else TEXT,40,size_hint_x=None,width=dp(95))
-            toggle.bind(on_release=lambda _,sid=s["id"]: self.toggle_subject(sid))
+                                GREEN if s["active"] else "#E2E8F0",
+                                WHITE if s["active"] else TEXT,40,size_hint_x=None,width=dp(95))
+            toggle.bind(on_release=lambda _,sid=s["id"]: self.toggle_subject(sid))  # type: ignore
             card.add_widget(toggle)
             c.add_widget(card)
         c.add_widget(lbl("💡 Al activar o desactivar una asignatura, la vista del estudiante se actualiza al volver a ella.",13,MUTED,size_hint_y=None,height=dp(55)))
@@ -624,7 +624,7 @@ class TeacherScreen(BaseScreen):
     def students_view(self,c):
         add_title(c,"Lista de Estudiantes","Rendimiento general del curso.")
         rows=[("Sofía Morales","Matemáticas","85%","6.5"),("Tomás Rojas","Lenguaje","78%","5.8"),
-              ("Camila Pérez","Ciencias","65%","5.3"),("Diego Soto","Historia","91%","6.8")]
+                ("Camila Pérez","Ciencias","65%","5.3"),("Diego Soto","Historia","91%","6.8")]
         for name,sub,prog,avg in rows:
             card=Card(size_hint_y=None,height=dp(76),orientation="horizontal",spacing=dp(8))
             card.add_widget(lbl(name,14,TEXT,True,size_hint_x=.38))
@@ -644,12 +644,12 @@ class TeacherScreen(BaseScreen):
         inp=TextInput(hint_text="Escribe un aviso...",multiline=True,size_hint_y=None,height=dp(110))
         c.add_widget(inp)
         b=make_button("Enviar aviso",BLUE,WHITE,46)
-        b.bind(on_release=lambda *_: self.notice_sent(inp))
+        b.bind(on_release=lambda *_: self.notice_sent(inp)) # type: ignore
         c.add_widget(b)
 
     def notice_sent(self,inp):
         Popup(title="Aviso enviado",content=lbl("El aviso fue registrado para los apoderados.",14,TEXT),
-              size_hint=(.8,None),height=dp(180)).open()
+                size_hint=(.8,None),height=dp(180)).open()
         inp.text=""
 
 
@@ -675,19 +675,19 @@ class TutorEducaApp(App):
         sm=ScreenManager()
         self.screens={}
         for name, cls in [("login",LoginScreen),("guardian",GuardianScreen),("student",StudentScreen),
-                          ("topic",TopicScreen),("ai",AIChatScreen),("progress",ProgressScreen),("teacher",TeacherScreen)]:
+                            ("topic",TopicScreen),("ai",AIChatScreen),("progress",ProgressScreen),("teacher",TeacherScreen)]:
             s=cls(name=name); sm.add_widget(s); self.screens[name]=s
-        sm.app=self
+        sm.app=self # type: ignore
         return sm
 
     def go(self, screen):
-        self.root.current=screen
-        self.root.get_screen(screen).on_pre_enter()
+        self.root.current=screen    # type: ignore
+        self.root.get_screen(screen).on_pre_enter() # type: ignore
 
     def toggle_online(self):
         self.is_online=not self.is_online
-        current=self.root.current
-        self.root.get_screen(current).on_pre_enter()
+        current=self.root.current   # type: ignore
+        self.root.get_screen(current).on_pre_enter()    # type: ignore
 
 
 if __name__ == "__main__":

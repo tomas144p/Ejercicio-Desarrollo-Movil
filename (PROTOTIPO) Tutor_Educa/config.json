@@ -1,0 +1,23 @@
+{
+  "servidor": {
+    "motor": "auto",
+    "host": "127.0.0.1",
+    "puerto": 3306,
+    "usuario": "root",
+    "clave": "",
+    "base_datos": "tutor_educa",
+    "tiempo_espera": 3
+  },
+  "ia": {
+    "proveedor": "anthropic",
+    "modelo": "claude-haiku-4-5-20251001",
+    "api_key": "",
+    "url_base": "",
+    "max_tokens": 700,
+    "tiempo_espera": 40
+  },
+  "app": {
+    "carpeta_datos": "",
+    "intervalo_sincronizacion": 15
+  }
+}

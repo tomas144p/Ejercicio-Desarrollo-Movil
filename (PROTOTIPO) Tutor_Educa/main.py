@@ -51,7 +51,7 @@ _EMOJI_PATTERN = re.compile(f"[{_EMOJI_RANGES}]+")
 
 
 def with_emoji_font(text):
-    """Envuelve los emojis de un texto para que usen la fuente Emoji."""
+    # Envuelve los emojis de un texto para que usen la fuente Emoji.# 
     text = str(text)
     return _EMOJI_PATTERN.sub(lambda m: f"[font=Emoji]{m.group(0)}[/font]", text)
 
@@ -76,18 +76,17 @@ BORDER = "#E2E8F0"    # Bordes suaves de tarjetas
 
 
 def rgba(hex_color, alpha=1):
-    """Convierte un color hexadecimal (#RRGGBB) a una tupla RGBA de Kivy."""
+    # Convierte un color hexadecimal (#RRGGBB) a una tupla RGBA de Kivy.# 
     h = hex_color.lstrip("#")
     return tuple(int(h[i:i+2], 16) / 255 for i in (0, 2, 4)) + (alpha,)
 
 
 class Card(BoxLayout):
-    """BoxLayout con fondo redondeado y, opcionalmente, borde.
+    # BoxLayout con fondo redondeado y, opcionalmente, borde.
 
-    Se usa como bloque visual para agrupar contenido (tarjetas, banners,
-    estadísticas, etc.). El fondo se dibuja en el canvas 'before' para que
-    quede por detrás de los hijos.
-    """
+    # Se usa como bloque visual para agrupar contenido (tarjetas, banners,
+    # estadísticas, etc.). El fondo se dibuja en el canvas 'before' para que
+    # quede por detrás de los hijos.
 
     def __init__(self, bg=WHITE, radius=16, border=None, **kwargs):
         # bg: color de fondo, radius: radio de las esquinas, border: color del borde
@@ -110,7 +109,7 @@ class Card(BoxLayout):
         self.bind(pos=self._update, size=self._update)  # type: ignore
 
     def _update(self, *_):
-        """Sincroniza el rectángulo (y el borde) con la posición/tamaño actuales."""
+        # Sincroniza el rectángulo (y el borde) con la posición/tamaño actuales.# 
         self.rect.pos = self.pos
         self.rect.size = self.size
         if hasattr(self, "line"):
@@ -132,7 +131,7 @@ def lbl(text="", size=16, color=TEXT, bold=False, **kwargs):
     )
 
 def make_button(text, bg=BLUE, color=WHITE, height=46, radius=12, **kwargs):
-    """Botón con fondo redondeado y feedback visual al presionar."""
+    # Botón con fondo redondeado y feedback visual al presionar.# 
     b = Button(
         text=with_emoji_font(text), font_size=dp(14), bold=True,
         font_name="Poppins", markup=True, color=rgba(color),
@@ -149,12 +148,12 @@ def make_button(text, bg=BLUE, color=WHITE, height=46, radius=12, **kwargs):
         b._bg_rect = RoundedRectangle(pos=b.pos, size=b.size, radius=[dp(radius)])
 
     def _update(instance, *_):
-        """Mantiene el rectángulo de fondo alineado con el botón."""
+        # Mantiene el rectángulo de fondo alineado con el botón.# 
         instance._bg_rect.pos = instance.pos
         instance._bg_rect.size = instance.size
 
     def _on_state(instance, value):
-        """Oscurece el fondo mientras el botón está presionado."""
+        # Oscurece el fondo mientras el botón está presionado.# 
         r, g, bl, a = instance._bg_color
         if instance.disabled:
             return
@@ -164,7 +163,7 @@ def make_button(text, bg=BLUE, color=WHITE, height=46, radius=12, **kwargs):
             instance._bg_instr.rgba = instance._bg_color
 
     def _on_disabled(instance, value):
-        """Atenúa el botón cuando está deshabilitado."""
+        # Atenúa el botón cuando está deshabilitado.# 
         r, g, bl, a = instance._bg_color
         instance._bg_instr.rgba = (r, g, bl, a * 0.55) if value else (r, g, bl, a)
 
@@ -173,7 +172,7 @@ def make_button(text, bg=BLUE, color=WHITE, height=46, radius=12, **kwargs):
 
 
 def add_title(parent, title, subtitle=None):
-    """Agrega un bloque de título + subtítulo opcional a un contenedor."""
+    # Agrega un bloque de título + subtítulo opcional a un contenedor.# 
     box = BoxLayout(orientation="vertical", size_hint_y=None, height=dp(82),
                     spacing=dp(4))
     box.add_widget(lbl(title, 27, TEXT, True))
@@ -183,7 +182,7 @@ def add_title(parent, title, subtitle=None):
 
 
 class Header(BoxLayout):
-    """Cabecera reutilizable: botón atrás + logo + título + estado online."""
+    # Cabecera reutilizable: botón atrás + logo + título + estado online.# 
 
     def __init__(self, app, title, back=True, **kwargs):
         super().__init__(orientation="horizontal", size_hint_y=None, height=dp(64),
@@ -214,14 +213,14 @@ class Header(BoxLayout):
 
 
 class BaseScreen(Screen):
-    """Clase base para todas las pantallas: fondo + scroll reutilizables."""
+    #Clase base para todas las pantallas: fondo + scroll reutilizables.
 
     def body(self):
-        """Crea el contenedor raíz con fondo pintado por canvas.
+        #Crea el contenedor raíz con fondo pintado por canvas.
 
-        BoxLayout no tiene background_color en Kivy, así que dibujamos el
-        fondo directamente con un Rectangle en el canvas.
-        """
+        # BoxLayout no tiene background_color en Kivy, así que dibujamos el
+        # fondo directamente con un Rectangle en el canvas.
+        
         root = BoxLayout(orientation="vertical")
         with root.canvas.before:  # type: ignore
             bg_color = Color(*rgba(BG))
@@ -234,7 +233,7 @@ class BaseScreen(Screen):
         return root
 
     def scroll(self):
-        """Devuelve un ScrollView + contenedor vertical con scroll habilitado."""
+        #Devuelve un ScrollView + contenedor vertical con scroll habilitado.
         s = ScrollView()
         content = BoxLayout(orientation="vertical", padding=dp(24), spacing=dp(18),
                             size_hint_y=None)
@@ -248,7 +247,7 @@ class BaseScreen(Screen):
 # ------------------------------------------------------------
 
 class LoginScreen(BaseScreen):
-    """Pantalla inicial: selección de perfil y cambio de estado online."""
+    # Pantalla inicial: selección de perfil y cambio de estado online.
 
     def on_pre_enter(self, *args):
         self.clear_widgets()
@@ -309,7 +308,7 @@ class LoginScreen(BaseScreen):
 # ------------------------------------------------------------
 
 class GuardianScreen(BaseScreen):
-    """Panel del apoderado: resumen, tareas, IA, seguimiento y avisos."""
+    # Panel del apoderado: resumen, tareas, IA, seguimiento y avisos.
 
     active_tab = StringProperty("home")
 
@@ -317,7 +316,7 @@ class GuardianScreen(BaseScreen):
         self.render()
 
     def render(self):
-        """Reconstruye la pantalla según la pestaña activa."""
+        # Reconstruye la pantalla según la pestaña activa.
         self.clear_widgets()
         root = self.body()
         root.add_widget(Header(self.manager.app, "Panel Apoderado", back=True))
@@ -348,7 +347,7 @@ class GuardianScreen(BaseScreen):
             self.notifications(content)
 
     def set_tab(self, key):
-        """Cambia la pestaña activa y vuelve a dibujar."""
+        # Cambia la pestaña activa y vuelve a dibujar.
         self.active_tab = key
         self.render()
 
@@ -414,7 +413,7 @@ class GuardianScreen(BaseScreen):
 
     # --- Popup: detalle de tarea ------------------------------------
     def task_detail(self):
-        """Muestra un popup con el detalle de la tarea y acciones posibles."""
+        # Muestra un popup con el detalle de la tarea y acciones posibles.# 
         box = BoxLayout(orientation="vertical", padding=dp(20), spacing=dp(12))
         box.add_widget(lbl("Ejercicios de Fracciones", 21, TEXT, True))
         box.add_widget(lbl(
@@ -491,7 +490,7 @@ class GuardianScreen(BaseScreen):
         c.add_widget(card)
 
     def ai_answer(self, query):
-        """Muestra la respuesta de la IA en un popup."""
+        # Muestra la respuesta de la IA en un popup.# 
         Popup(title="Asistente IA", content=lbl(
             f"Consulta: {query}\n\n"
             "Para apoyar a Sofía, puedes practicar el contenido con situaciones "
@@ -502,7 +501,7 @@ class GuardianScreen(BaseScreen):
     # --- Pestaña: Seguimiento ---------------------------------------
     def tracking(self, c):
         add_title(c, "Seguimiento del aprendizaje",
-                  "Una visión simple del progreso para acompañar desde casa.")
+                    "Una visión simple del progreso para acompañar desde casa.")
         for title, value, detail in [
             ("Horas de estudio", "14 h", "Esta semana"),
             ("Actividades completadas", "18", "De 22 asignadas"),
@@ -518,7 +517,7 @@ class GuardianScreen(BaseScreen):
     # --- Pestaña: Notificaciones ------------------------------------
     def notifications(self, c):
         add_title(c, "Notificaciones",
-                  "Información relevante sobre el proceso de aprendizaje.")
+                    "Información relevante sobre el proceso de aprendizaje.")
         items = [
             ("ℹ", "Nueva tarea asignada: Ejercicios de Fracciones", BLUE),
             ("✅", "Sofía completó el objetivo semanal de Matemáticas", GREEN),
@@ -541,7 +540,7 @@ class GuardianScreen(BaseScreen):
 # ------------------------------------------------------------
 
 class StudentScreen(BaseScreen):
-    """Vista principal del estudiante: asignaturas y accesos rápidos."""
+    # Vista principal del estudiante: asignaturas y accesos rápidos.
 
     def on_pre_enter(self, *args):
         self.render()
@@ -554,11 +553,11 @@ class StudentScreen(BaseScreen):
         root.add_widget(scroll)
 
         add_title(c, "Aprende matemáticas a tu ritmo.",
-                  "Contenido disponible incluso sin internet.")
+                    "Contenido disponible incluso sin internet.")
 
         # Banner de estado de conexión
         online = Card(bg="#EFF6FF", border="#BFDBFE", size_hint_y=None,
-                      height=dp(88), orientation="vertical")
+                        height=dp(88), orientation="vertical")
         online.add_widget(lbl(
             ("🟢 Modo Online" if self.manager.app.is_online else "⚪ Modo Offline"),
             16, BLUE, True
@@ -578,7 +577,7 @@ class StudentScreen(BaseScreen):
             card = Card(size_hint_y=None, height=h, orientation="vertical",
                         spacing=dp(6))
             icon = lbl(s["emoji"], 30, TEXT, halign="center",
-                       size_hint_y=None, height=dp(40))
+                        size_hint_y=None, height=dp(40))
             card.add_widget(icon)
             card.add_widget(lbl(s["name"], 15, TEXT, True, halign="center"))
             if s["active"]:
@@ -601,11 +600,11 @@ class StudentScreen(BaseScreen):
 
         # Bloque de accesos rápidos a otras secciones
         quick = Card(size_hint_y=None, height=dp(185), orientation="vertical",
-                     spacing=dp(7))
+                        spacing=dp(7))
         quick.add_widget(lbl("Accesos rápidos", 18, TEXT, True))
         for text, screen in [("▶ Continuar: Ecuaciones lineales", "topic"),
-                             ("📈 Practicar ejercicios", "topic"),
-                             ("🧠 Preguntar a la IA", "ai")]:
+                                ("📈 Practicar ejercicios", "topic"),
+                                ("🧠 Preguntar a la IA", "ai")]:
             b = make_button(text, "#F8FAFC", TEXT, 40)
             b.bind(on_release=lambda _, s=screen: self.manager.app.go(s))  # type: ignore
             quick.add_widget(b)
@@ -617,7 +616,7 @@ class StudentScreen(BaseScreen):
 # ------------------------------------------------------------
 
 class TopicScreen(BaseScreen):
-    """Pantalla de contenido de Matemáticas: explicación, ejemplos y práctica."""
+    # Pantalla de contenido de Matemáticas: explicación, ejemplos y práctica.
 
     section = StringProperty("explanation")
 
@@ -631,10 +630,10 @@ class TopicScreen(BaseScreen):
 
         # Pestañas internas de la asignatura
         tabs = BoxLayout(size_hint_y=None, height=dp(50),
-                         padding=(dp(10), dp(5)), spacing=dp(6))
+                            padding=(dp(10), dp(5)), spacing=dp(6))
         for key, text in [("explanation", "Explicación"),
-                          ("examples", "Ejemplos"),
-                          ("exercises", "Ejercicios")]:
+                            ("examples", "Ejemplos"),
+                            ("exercises", "Ejercicios")]:
             b = make_button(text, BLUE if self.section == key else "#E2E8F0",
                             WHITE if self.section == key else TEXT, 40)
             b.bind(on_release=lambda _, k=key: self.change(k))  # type: ignore
@@ -668,7 +667,7 @@ class TopicScreen(BaseScreen):
 
         # Ejemplo paso a paso
         ex = Card(bg="#EFF6FF", border="#BFDBFE", size_hint_y=None,
-                  height=dp(180), orientation="vertical", spacing=dp(6))
+                    height=dp(180), orientation="vertical", spacing=dp(6))
         ex.add_widget(lbl("Ejemplo básico", 18, TEXT, True))
         ex.add_widget(lbl(
             "Encuentra x:\n\n2x + 3 = 7\n// Restamos 3 de ambos lados\n"
@@ -727,11 +726,11 @@ class TopicScreen(BaseScreen):
 
 
 # ------------------------------------------------------------
-# AI Chat (asistente con dos modos)
+# AI Chat (asistente con dos modos) [No implementado en el prototipo final]
 # ------------------------------------------------------------
 
 class AIChatScreen(BaseScreen):
-    """Chat de IA con modos Estudiante y Apoderado."""
+    # Chat de IA con modos Estudiante y Apoderado.
 
     def on_pre_enter(self, *args):
         # Se inicializa el modo y el historial cada vez que se entra
@@ -792,7 +791,7 @@ class AIChatScreen(BaseScreen):
         root.add_widget(self.input_bar())
 
     def input_bar(self):
-        """Barra inferior con campo de texto y botón enviar."""
+        # Barra inferior con campo de texto y botón enviar.
         box = BoxLayout(size_hint_y=None, height=dp(62),
                         padding=dp(8), spacing=dp(8))
         inp = TextInput(
@@ -814,13 +813,13 @@ class AIChatScreen(BaseScreen):
         return box
 
     def set_mode(self, m):
-        """Cambia entre modo estudiante y apoderado, reiniciando el chat."""
+        # Cambia entre modo estudiante y apoderado, reiniciando el chat.
         self.mode = m
         self.messages = []
         self.render()
 
     def send_message(self, text):
-        """Agrega el mensaje del usuario y simula una respuesta de la IA."""
+        # Agrega el mensaje del usuario y simula una respuesta de la IA.
         if not self.manager.app.is_online:
             return
         self.messages.append(("user", text))
@@ -839,7 +838,7 @@ class AIChatScreen(BaseScreen):
 # ------------------------------------------------------------
 
 class ProgressScreen(BaseScreen):
-    """Pantalla de progreso personal del estudiante."""
+    # Pantalla de progreso personal del estudiante.
 
     def on_pre_enter(self, *args):
         self.render()
@@ -894,7 +893,7 @@ class ProgressScreen(BaseScreen):
 # ------------------------------------------------------------
 
 class TeacherScreen(BaseScreen):
-    """Panel del profesor: materias, estudiantes, rendimiento y avisos."""
+    # Panel del profesor: materias, estudiantes, rendimiento y avisos.
 
     tab = StringProperty("subjects")
 
@@ -961,7 +960,7 @@ class TeacherScreen(BaseScreen):
         ))
 
     def toggle_subject(self, sid):
-        """Invierte el estado activo de una asignatura y refresca la vista."""
+        # Invierte el estado activo de una asignatura y refresca la vista.
         for s in self.manager.app.subjects:
             if s["id"] == sid:
                 s["active"] = not s["active"]
@@ -1008,7 +1007,7 @@ class TeacherScreen(BaseScreen):
         c.add_widget(b)
 
     def notice_sent(self, inp):
-        """Muestra confirmación y limpia el campo de texto."""
+        # Muestra confirmación y limpia el campo de texto.
         Popup(title="Aviso enviado",
             content=lbl("El aviso fue registrado para los apoderados.", 14, TEXT),
             size_hint=(.8, None), height=dp(180)).open()
@@ -1020,7 +1019,7 @@ class TeacherScreen(BaseScreen):
 # ------------------------------------------------------------
 
 class TutorEducaApp(App):
-    """Aplicación principal: registra pantallas y gestiona la navegación."""
+    # Aplicación principal: registra pantallas y gestiona la navegación.
 
     # Estado simulado de conexión (afecta a varias vistas)
     is_online = BooleanProperty(True)
@@ -1040,7 +1039,7 @@ class TutorEducaApp(App):
     ])
 
     def build(self):
-        """Registra todas las pantallas en el ScreenManager."""
+        # Registra todas las pantallas en el ScreenManager.
         sm = ScreenManager()
         self.screens = {}
         for name, cls in [
@@ -1059,12 +1058,12 @@ class TutorEducaApp(App):
         return sm
 
     def go(self, screen):
-        """Navega a una pantalla y fuerza su renderizado previo."""
+        # Navega a una pantalla y fuerza su renderizado previo.
         self.root.current = screen  # type: ignore
         self.root.get_screen(screen).on_pre_enter()  # type: ignore
 
     def toggle_online(self):
-        """Alterna entre modo online y offline y refresca la pantalla actual."""
+        # Alterna entre modo online y offline y refresca la pantalla actual.
         self.is_online = not self.is_online
         current = self.root.current  # type: ignore
         self.root.get_screen(current).on_pre_enter()  # type: ignore

@@ -38,7 +38,7 @@ from tutor_educa.configuracion import Configuracion  # noqa: E402
 from tutor_educa.datos.local import BaseDatosLocal  # noqa: E402
 from tutor_educa.datos.servidor import GestorServidor  # noqa: E402
 from tutor_educa.interfaz.componentes import (Columna, FilaLista, InsigniaIcono, Interruptor,  # noqa: E402
-                                              Separador, Texto)
+                                                Separador, Texto)
 from tutor_educa.interfaz.dialogos import Dialogo, Notificador  # noqa: E402
 from tutor_educa.interfaz.estilo import Paleta, Tipografia, color  # noqa: E402
 from tutor_educa.interfaz.pantallas.apoderado import PantallaApoderado  # noqa: E402
@@ -108,8 +108,8 @@ class TutorEducaApp(App):
         self.raiz = RaizApp(self.gestor)
         self.notificador = Notificador(self.raiz.capa_avisos)
         for clase, nombre in ((PantallaIngreso, "ingreso"), (PantallaEstudiante, "estudiante"),
-                              (PantallaLeccion, "leccion"), (PantallaChat, "chat"), (PantallaDocente, "docente"),
-                              (PantallaFichaEstudiante, "ficha"), (PantallaApoderado, "apoderado")):
+                                (PantallaLeccion, "leccion"), (PantallaChat, "chat"), (PantallaDocente, "docente"),
+                                (PantallaFichaEstudiante, "ficha"), (PantallaApoderado, "apoderado")):
             self.gestor.add_widget(clase(self, name=nombre))
 
         # 3. Conexión: se busca el servidor en segundo plano y se revisa cada cierto tiempo.
@@ -158,7 +158,7 @@ class TutorEducaApp(App):
         self.sincronizando = True
         usuario = self.usuario
         self.ejecutor_datos.enviar(lambda: self.sincronizacion.sincronizar(usuario),
-                                   partial(self._sincronizado, usuario, avisar), self._fallo_sincronizacion)
+                                    partial(self._sincronizado, usuario, avisar), self._fallo_sincronizacion)
 
     def _sincronizado(self, usuario, avisar: bool, resultado) -> None:
         self.sincronizando = False
@@ -198,16 +198,16 @@ class TutorEducaApp(App):
         self.gestor.current = self.usuario.PANTALLA_INICIO
         self.pendientes = self.local.cantidad_pendientes()
         self.notificador.mostrar(resultado.mensaje, "exito" if resultado.en_linea else "aviso",
-                                 duracion=2.5 if resultado.en_linea else 5)
+                                    duracion=2.5 if resultado.en_linea else 5)
 
     def cerrar_sesion(self) -> None:
         if self.pendientes:
             texto = (f"Hay {self.pendientes} cambio(s) sin enviar. Quedan guardados en este dispositivo y se "
-                     "enviarán la próxima vez que haya conexión.")
+                        "enviarán la próxima vez que haya conexión.")
         else:
             texto = "Podrás volver a entrar cuando quieras."
         Dialogo.confirmar("¿Cerrar sesión?", texto, "Cerrar sesión", self._cerrar_sesion, icono="log-out",
-                          tinta=Paleta.POR_ROL[self.usuario.rol][0] if self.usuario else Paleta.AZUL)
+                            tinta=Paleta.POR_ROL[self.usuario.rol][0] if self.usuario else Paleta.AZUL)
 
     def _cerrar_sesion(self) -> None:
         self.usuario = None
@@ -223,7 +223,7 @@ class TutorEducaApp(App):
         if self.gestor.current == nombre:
             pantalla.actualizar()
             return
-        self._historial.append(self.gestor.current)
+        self._historial.append(self.gestor.current) # type: ignore
         self.gestor.transition = SlideTransition(direction="left", duration=0.22)
         self.gestor.current = nombre
 
@@ -235,30 +235,30 @@ class TutorEducaApp(App):
         return True
 
     def abrir_leccion(self, tema_id: str, vista_previa: bool = False, nota: str = "") -> None:
-        es_estudiante = self.usuario.rol == Rol.ESTUDIANTE and not vista_previa
-        if not nota and not es_estudiante and self.usuario.rol == Rol.DOCENTE:
+        es_estudiante = self.usuario.rol == Rol.ESTUDIANTE and not vista_previa # type: ignore
+        if not nota and not es_estudiante and self.usuario.rol == Rol.DOCENTE:  # type: ignore
             nota = "Vista previa del docente"
-        self.ir_a("leccion", tema_id=tema_id, estudiante_id=self.usuario.id if es_estudiante else None,
-                  vista_previa=not es_estudiante, nota_previa=nota)
+        self.ir_a("leccion", tema_id=tema_id, estudiante_id=self.usuario.id if es_estudiante else None, # type: ignore
+                    vista_previa=not es_estudiante, nota_previa=nota)
 
     def abrir_chat_estudiante(self, tema_id: str | None) -> None:
         if not self.internet:
             self.notificador.mostrar("El tutor IA necesita internet.", "aviso")
             return
         tema = self.datos.tema(tema_id) if tema_id else None
-        contexto = ContextoConversacion("estudiante", self.usuario, tema=tema, ficha=self.datos.ficha(self.usuario.id))
+        contexto = ContextoConversacion("estudiante", self.usuario, tema=tema, ficha=self.datos.ficha(self.usuario.id)) # type: ignore
         self.ir_a("chat", conversacion=self.tutor_ia.conversacion(contexto), titulo="Tutor IA",
-                  subtitulo=tema.titulo if tema else "Pregunta libre")
+                    subtitulo=tema.titulo if tema else "Pregunta libre")
 
     def abrir_chat_apoderado(self, estudiante_id: int, pregunta: str | None = None) -> None:
         if not self.internet:
             self.notificador.mostrar("El asistente necesita internet.", "aviso")
             return
         ficha = self.datos.ficha(estudiante_id)
-        contexto = ContextoConversacion("apoderado", self.usuario, ficha=ficha, avisos=self.datos.avisos_apoderado(),
+        contexto = ContextoConversacion("apoderado", self.usuario, ficha=ficha, avisos=self.datos.avisos_apoderado(), # type: ignore
                                         nombres_asignaturas={a.id: a.nombre for a in self.datos.asignaturas()})
         self.ir_a("chat", conversacion=self.tutor_ia.conversacion(contexto), titulo="Asistente para familias",
-                  subtitulo=f"Sobre {ficha.estudiante.primer_nombre}" if ficha else "", pregunta_inicial=pregunta)
+                    subtitulo=f"Sobre {ficha.estudiante.primer_nombre}" if ficha else "", pregunta_inicial=pregunta)
 
     # ------------------------------------------------------------------
     # Estado de conexión (al tocar la pastilla "En línea / Sin conexión")
@@ -268,26 +268,26 @@ class TutorEducaApp(App):
         contenido = Columna(spacing=0)
         servidor_ok = monitor.servidor_ok and not monitor.forzado_sin_conexion
         contenido.add_widget(FilaLista("Servidor del colegio",
-                                       f"{self.gestor_servidor.descripcion}: {'responde' if servidor_ok else 'no responde'}",
-                                       inicio=InsigniaIcono("server", tinta=Paleta.VERDE if servidor_ok else Paleta.AMBAR,
+                                        f"{self.gestor_servidor.descripcion}: {'responde' if servidor_ok else 'no responde'}",
+                                        inicio=InsigniaIcono("server", tinta=Paleta.VERDE if servidor_ok else Paleta.AMBAR,
                                                             lado=38)))
         contenido.add_widget(Separador())
         contenido.add_widget(FilaLista("Internet para el tutor IA", "Disponible" if self.internet else "No disponible",
-                                       inicio=InsigniaIcono("bot", tinta=Paleta.VERDE if self.internet else Paleta.AMBAR,
+                                        inicio=InsigniaIcono("bot", tinta=Paleta.VERDE if self.internet else Paleta.AMBAR,
                                                             lado=38)))
         contenido.add_widget(Separador())
         contenido.add_widget(FilaLista("Cambios por enviar",
-                                       f"{self.pendientes} pendiente(s)" if self.pendientes else "Ninguno: todo al día",
-                                       inicio=InsigniaIcono("refresh-cw", tinta=Paleta.AZUL, lado=38)))
+                                        f"{self.pendientes} pendiente(s)" if self.pendientes else "Ninguno: todo al día",
+                                        inicio=InsigniaIcono("refresh-cw", tinta=Paleta.AZUL, lado=38)))
         contenido.add_widget(Separador())
         interruptor = Interruptor(activo=monitor.forzado_sin_conexion, acento=Paleta.AMBAR)
         interruptor.bind(activo=lambda _w, valor: self._simular_sin_conexion(valor))
         contenido.add_widget(FilaLista("Simular sin conexión", "Para mostrar cómo funciona la app sin internet",
-                                       inicio=InsigniaIcono("wifi-off", tinta=Paleta.AMBAR, lado=38), fin=interruptor))
+                                        inicio=InsigniaIcono("wifi-off", tinta=Paleta.AMBAR, lado=38), fin=interruptor))
         contenido.add_widget(Texto(self.gestor_servidor.diagnostico, tamano=12.5, color_texto=Paleta.TINTA_SUAVE))
         botones = [("Cerrar", None, "contorno")]
         if self.usuario is not None:
-            botones.append(("Sincronizar", lambda: self.solicitar_sincronizacion(avisar=True), "primario"))
+            botones.append(("Sincronizar", lambda: self.solicitar_sincronizacion(avisar=True), "primario")) # type: ignore
         Dialogo("Estado de la conexión", contenido=contenido, icono="wifi", botones=botones).open()
 
     def _simular_sin_conexion(self, valor: bool) -> None:
@@ -295,7 +295,7 @@ class TutorEducaApp(App):
         if not valor:
             self.monitor.comprobar()
         self.notificador.mostrar("Modo sin conexión simulado activado." if valor else "Volviendo a conectar…",
-                                 "aviso" if valor else "info")
+                                    "aviso" if valor else "info")
 
     # ------------------------------------------------------------------
     def _tecla(self, _window, tecla, *_args) -> bool:

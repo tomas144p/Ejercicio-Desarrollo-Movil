@@ -5,7 +5,7 @@ La configuración se lee desde tres fuentes, en este orden (la última gana):
 
 1. ``config.json``: valores por defecto que se suben al repositorio.
 2. ``config.local.json``: valores personales (por ejemplo la clave de la IA
-   o la contraseña de MySQL). Está en ``.gitignore`` para no publicarla.
+    o la contraseña de MySQL). Está en ``.gitignore`` para no publicarla.
 3. Variables de entorno: ``ANTHROPIC_API_KEY`` o ``TUTOR_IA_API_KEY``.
 
 Así el mismo código funciona en el computador de cada integrante del equipo

@@ -1,5 +1,5 @@
 """
-Tutor Educa: tutor de refuerzo de matemáticas (5° a 8° básico).
+Tutor Educa: tutor de refuerzo de matemáticas (2do Ciclo Escolar).
 
 Punto de entrada de la aplicación. Aquí solo se "arma" la app: se crean los
 servicios (base de datos, sincronización, inicio de sesión, IA), las

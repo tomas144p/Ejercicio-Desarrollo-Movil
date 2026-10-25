@@ -19,20 +19,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tutor_educa.configuracion import ConfigServidor, Configuracion  # noqa: E402
-from tutor_educa.contenido.datos_iniciales import DatosIniciales  # noqa: E402
-from tutor_educa.datos.conexiones import ConexionMySQL, ErrorConexion  # noqa: E402
-from tutor_educa.datos.esquema import crear_esquema  # noqa: E402
-from tutor_educa.datos.local import BaseDatosLocal  # noqa: E402
-from tutor_educa.datos.servidor import GestorServidor, ServidorRemoto  # noqa: E402
-from tutor_educa.evaluacion import CorrectorRespuestas, SesionPrueba  # noqa: E402
-from tutor_educa.modelos import (Aviso, EscalaNotas, EstadoRefuerzo, Intento, Pregunta,  # noqa: E402
+from services.configuracion import ConfigServidor, Configuracion  # noqa: E402
+from models.contenido.datos_iniciales import DatosIniciales  # noqa: E402
+from models.datos.conexiones import ConexionMySQL, ErrorConexion  # noqa: E402
+from models.datos.esquema import crear_esquema  # noqa: E402
+from models.datos.local import BaseDatosLocal  # noqa: E402
+from models.datos.servidor import GestorServidor, ServidorRemoto  # noqa: E402
+from services.evaluacion import CorrectorRespuestas, SesionPrueba  # noqa: E402
+from services.validaciones import (validar_aviso, validar_clave, validar_correo,  # noqa: E402
+                                   validar_respuesta)
+from models.modelos import (Aviso, EscalaNotas, EstadoRefuerzo, Intento, Pregunta,  # noqa: E402
                                  Usuario)
-from tutor_educa.seguridad import GestorClaves  # noqa: E402
-from tutor_educa.servicios.autenticacion import ServicioAutenticacion  # noqa: E402
-from tutor_educa.servicios.datos_app import ServicioDatos  # noqa: E402
-from tutor_educa.servicios.ia.conversacion import ContextoConversacion, ServicioTutorIA  # noqa: E402
-from tutor_educa.servicios.sincronizacion import ServicioSincronizacion  # noqa: E402
+from services.seguridad import GestorClaves  # noqa: E402
+from services.autenticacion import ServicioAutenticacion  # noqa: E402
+from services.datos_app import ServicioDatos  # noqa: E402
+from services.ia.conversacion import ContextoConversacion, ServicioTutorIA  # noqa: E402
+from services.sincronizacion import ServicioSincronizacion  # noqa: E402
 
 CLAVE = DatosIniciales.CLAVE_DEMO
 
@@ -207,7 +209,7 @@ class PruebasConServidor(unittest.TestCase):
     def test_tutor_local(self):
         sofia = self.auth.ingresar(self.correo("sofia.morales"), CLAVE).usuario
         self.datos.iniciar_sesion(sofia)
-        from tutor_educa.configuracion import ConfigIA
+        from services.configuracion import ConfigIA
         servicio = ServicioTutorIA(ConfigIA(api_key=""), self.datos)
         self.assertFalse(servicio.usa_ia_real)
         contexto = ContextoConversacion("estudiante", sofia, tema=self.datos.tema("mat-ecuaciones"),
@@ -269,6 +271,47 @@ class PruebasMySQL(unittest.TestCase):
         datos.registrar_intento(Intento.nuevo(resultado.usuario.id, "mat-ecuaciones", 4, 5))
         self.assertEqual(sinc.sincronizar(resultado.usuario).enviados, 2)
         self.assertEqual(self.conexion.valor("SELECT COUNT(*) FROM intentos WHERE estudiante_id = 2"), 3)
+
+
+class PruebasValidaciones(unittest.TestCase):
+    """Las validaciones de services/ son funciones puras: se prueban sin abrir la app."""
+
+    def test_correo(self):
+        self.assertEqual(validar_correo("  ana@tutoreduca.cl "), "ana@tutoreduca.cl")
+        for malo in ("", "ana", "ana@", "ana@tutoreduca"):
+            with self.assertRaises(ValueError):
+                validar_correo(malo)
+
+    def test_clave_aviso_y_respuesta(self):
+        with self.assertRaises(ValueError):
+            validar_clave("")
+        with self.assertRaises(ValueError):
+            validar_aviso("ab", "mensaje largo")
+        with self.assertRaises(ValueError):
+            validar_aviso("Título", "hola")
+        self.assertEqual(validar_aviso(" Título ", " mensaje "), ("Título", "mensaje"))
+        with self.assertRaises(ValueError):
+            validar_respuesta("   ")
+        self.assertEqual(validar_respuesta(" 11 "), "11")
+
+
+class PruebasArquitectura(unittest.TestCase):
+    """Comprueba la separación en capas pedida en el taller de Arquitectura Modular."""
+
+    RAIZ = Path(__file__).resolve().parent.parent
+
+    def test_services_y_models_no_usan_kivy(self):
+        for carpeta in ("services", "models"):
+            for archivo in (self.RAIZ / carpeta).rglob("*.py"):
+                self.assertNotIn("kivy", archivo.read_text(encoding="utf-8"), f"{archivo} importa Kivy")
+
+    def test_cada_carpeta_es_un_paquete(self):
+        for carpeta in ("views", "services", "models"):
+            self.assertTrue((self.RAIZ / carpeta / "__init__.py").exists(), carpeta)
+
+    def test_main_es_corto(self):
+        lineas = (self.RAIZ / "main.py").read_text(encoding="utf-8").splitlines()
+        self.assertLess(len(lineas), 25)
 
 
 if __name__ == "__main__":

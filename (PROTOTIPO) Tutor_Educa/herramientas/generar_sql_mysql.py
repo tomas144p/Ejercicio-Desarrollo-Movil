@@ -17,8 +17,8 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
-from tutor_educa.contenido.datos_iniciales import DatosIniciales  # noqa: E402
-from tutor_educa.datos.esquema import TABLAS, sentencias_creacion  # noqa: E402
+from models.contenido.datos_iniciales import DatosIniciales  # noqa: E402
+from models.datos.esquema import TABLAS, sentencias_creacion  # noqa: E402
 
 
 def literal(valor) -> str:

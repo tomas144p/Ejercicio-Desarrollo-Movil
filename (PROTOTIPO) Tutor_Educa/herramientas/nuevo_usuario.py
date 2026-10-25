@@ -14,8 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tutor_educa.modelos import Rol, ahora_iso  # noqa: E402
-from tutor_educa.seguridad import GestorClaves  # noqa: E402
+from models.modelos import Rol, ahora_iso  # noqa: E402
+from services.seguridad import GestorClaves  # noqa: E402
 
 if __name__ == "__main__":
     if len(sys.argv) != 5 or sys.argv[3] not in Rol.TODOS:

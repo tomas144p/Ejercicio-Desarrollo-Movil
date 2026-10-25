@@ -56,30 +56,33 @@ El chat se activa cuando hay internet. Hay dos modos:
 - **Con clave de IA**: responde **Claude** (Anthropic). Crea `config.local.json` con `{"ia": {"api_key": "tu-clave"}}` o define la variable de entorno `ANTHROPIC_API_KEY`. El modelo se cambia en `config.json`.
 - **Sin clave (modo demostración)**: responde un tutor integrado que usa la materia de la base de datos. Reconoce pedidos como «explícame», «dame un ejemplo», «hazme una prueba» o «dame una pista», toma mini pruebas de 3 preguntas y da una segunda oportunidad con pista antes de revelar la respuesta.
 
-Las instrucciones que convierten a la IA en docente están en `tutor_educa/servicios/ia/instrucciones.py`: primero explicar la duda, luego un ejemplo resuelto paso a paso y después una pequeña prueba, una pregunta a la vez. También se le entrega la materia oficial del tema para que no enseñe de otra forma.
+Las instrucciones que convierten a la IA en docente están en `services/ia/instrucciones.py`: primero explicar la duda, luego un ejemplo resuelto paso a paso y después una pequeña prueba, una pregunta a la vez. También se le entrega la materia oficial del tema para que no enseñe de otra forma.
 
 Si la IA falla (clave incorrecta, sin saldo, sin internet), la conversación no se corta: responde el tutor integrado y aparece una nota con el motivo. También se puede usar otro proveedor compatible con la API de OpenAI (por ejemplo **Ollama** en el mismo PC) con `"proveedor": "openai_compatible"` y `"url_base": "http://localhost:11434/v1"`.
 
 ## Estructura del proyecto (POO por capas)
 
 ```
-main.py                         Arma la app: servicios, pantallas y navegación
+main.py                         Solo la clase TutorEducaApp (MDApp): orquesta e inicia la app
 config.json                     Configuración compartida (sin claves)
-tutor_educa/
-  configuracion.py              Lee config.json + config.local.json + variables de entorno
-  seguridad.py                  Cifrado de contraseñas (PBKDF2-SHA256)
-  modelos.py                    Usuario -> Estudiante/Docente/Apoderado, Tema, Pregunta, Intento...
+views/                          LA VISTA: solo KivyMD/Kivy, muestra datos y captura eventos
+  componentes.py                Boton (MDButton + MDButtonText), CampoTexto (MDTextField + MDTextFieldHintText)...
+  estilo.py, dialogos.py        Colores, tipografía, diálogos y avisos
+  navegacion.py, raiz.py        Barras de navegación y contenedor raíz
+  ventana.py                    Tamaño de la ventana (se llama antes de abrir Kivy)
+  base_screen.py                PantallaBase (MDScreen) y pantallas con pestañas
+  ingreso_screen.py ...         Una pantalla por archivo (ingreso, estudiante, leccion, chat, docente, ficha, apoderado)
+services/                       LA LÓGICA: Python puro, sin importar Kivy
+  validaciones.py               Valida correo, clave, avisos y respuestas (lanza ValueError)
   evaluacion.py                 Corrector flexible de respuestas y lógica de la prueba
-  contenido/matematicas.py      La materia de los 7 temas (se edita aquí)
-  contenido/datos_iniciales.py  Curso, notas y cuentas de demostración
-  datos/esquema.py              Las tablas, definidas una vez para SQLite y MySQL
-  datos/conexiones.py           ConexionSQLite y ConexionMySQL (misma interfaz)
-  datos/repositorio.py          Consultas compartidas
-  datos/servidor.py             Servidor (MySQL o demostración) y qué datos baja cada rol
-  datos/local.py                Base interna: copia local, credenciales recordadas, cola
-  servicios/                    Ingreso, sincronización, monitor de conexión, tareas en 2º plano
-  servicios/ia/                 Proveedores de IA, instrucciones, tutor integrado, conversación
-  interfaz/                     Estilo, componentes, diálogos, navegación y pantallas
+  autenticacion.py, sincronizacion.py, conexion.py, datos_app.py, tareas.py
+  configuracion.py, seguridad.py
+  ia/                           Proveedores de IA, instrucciones, tutor integrado, conversación
+models/                         LOS DATOS: estructuras y base de datos
+  modelos.py                    Usuario -> Estudiante/Docente/Apoderado, Tema, Pregunta, Intento...
+  contenido/                    La materia de los 7 temas y los datos de demostración
+  datos/                        Tablas, conexiones SQLite/MySQL, repositorio, servidor y base local
+controladores/                  Partes de la app (construcción, conexión, sesión, navegación)
 database/tutor_educa_mysql.sql  Para importar en phpMyAdmin
 herramientas/                   Generar el .sql, crear usuarios, capturar pantallas
 pruebas/test_nucleo.py          Pruebas automáticas

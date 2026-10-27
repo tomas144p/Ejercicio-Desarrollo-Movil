@@ -22,5 +22,17 @@
     "realizado_en": "2026-10-10 19:00:00",
     "origen": "app",
     "duracion_seg": 0.0
+  },
+  {
+    "codigo": "0890fefb874b4f1b96dee0844326311f",
+    "estudiante_id": 2,
+    "tema_id": "mat-ecuaciones",
+    "correctas": 4,
+    "total": 5,
+    "porcentaje": 80,
+    "nota": 5.5,
+    "realizado_en": "2026-10-27 16:35:42",
+    "origen": "app",
+    "duracion_seg": 66.7
   }
 ]

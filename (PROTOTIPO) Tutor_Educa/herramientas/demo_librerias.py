@@ -72,4 +72,4 @@ inicio = time.perf_counter()
 suma_np = arreglo.sum()
 t_numpy = time.perf_counter() - inicio
 print(f"Ciclo de Python: {t_python * 1000:.2f} ms | NumPy: {t_numpy * 1000:.3f} ms | "
-      f"NumPy fue {t_python / max(t_numpy, 1e-9):.0f} veces más rápido (mismo resultado: {suma == suma_np})")
+        f"NumPy fue {t_python / max(t_numpy, 1e-9):.0f} veces más rápido (mismo resultado: {suma == suma_np})")

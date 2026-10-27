@@ -4,7 +4,7 @@ Sincronización entre el teléfono y el servidor.
 Funciona como una "bandeja de salida":
 
 1. Cada cambio hecho en el teléfono (un intento de prueba, un tema
-   desbloqueado, un aviso) se guarda primero en la base local y en la cola.
+    desbloqueado, un aviso) se guarda primero en la base local y en la cola.
 2. Cuando hay conexión, se envía la cola al servidor, en orden.
 3. Después se descarga la versión actualizada de los datos del usuario.
 

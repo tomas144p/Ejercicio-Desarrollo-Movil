@@ -2,11 +2,11 @@
 Inicio de sesión en línea y sin conexión.
 
 - En línea: se busca el correo en el servidor y se verifica la contraseña.
-  El rol guardado para ese correo decide si entra como estudiante, docente
-  o apoderado. Si marcó «Recordarme», se guarda en el teléfono una huella
-  (hash) de su contraseña para poder entrar después sin internet.
+    El rol guardado para ese correo decide si entra como estudiante, docente
+    o apoderado. Si marcó «Recordarme», se guarda en el teléfono una huella
+    (hash) de su contraseña para poder entrar después sin internet.
 - Sin conexión: se verifica contra esa huella guardada. Solo pueden entrar
-  quienes ya ingresaron antes en este mismo dispositivo.
+    quienes ya ingresaron antes en este mismo dispositivo.
 
 Una contraseña incorrecta en línea NUNCA pasa al modo sin conexión.
 """
@@ -83,7 +83,7 @@ class ServicioAutenticacion:
             return ResultadoIngreso(False, mensaje="La contraseña no coincide con la guardada en este dispositivo.")
         self.local.registrar_ingreso(correo)
         usuario = Usuario.desde_fila({"id": credencial["usuario_id"], "correo": credencial["correo"],
-                                      "nombre": credencial["nombre"], "rol": credencial["rol"]})
+                                        "nombre": credencial["nombre"], "rol": credencial["rol"]})
         return ResultadoIngreso(True, usuario, en_linea=False, mensaje=(
             f"Hola, {usuario.primer_nombre}. Ingresaste sin conexión: verás los datos de tu última "
             "sincronización y tus cambios se enviarán cuando vuelva la conexión."))

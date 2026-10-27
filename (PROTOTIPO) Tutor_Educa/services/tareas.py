@@ -29,7 +29,7 @@ class EjecutorEnSegundoPlano:
         self._hilo.start()
 
     def enviar(self, funcion: Callable, al_terminar: Callable | None = None,
-               al_fallar: Callable | None = None) -> None:
+                al_fallar: Callable | None = None) -> None:
         """Agrega un trabajo. ``al_terminar(resultado)`` o ``al_fallar(error)`` se llaman al final."""
         self._cola.put((funcion, al_terminar, al_fallar))
 

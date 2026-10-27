@@ -216,6 +216,9 @@ class PantallaEstudiante(PantallaConPestanas):
         if ruta_grafico:
             c.add_widget(Imagen(source=str(ruta_grafico), nocache=True, size_hint_y=None, height=dp(300),
                                 fit_mode="contain"))
+        elif self.app.datos.error_grafico:
+            c.add_widget(CajaNota("Gráfico no disponible", self.app.datos.error_grafico, icono="circle-x",
+                                  tinta=Paleta.ROJO))
         lista = Superficie(padding=(dp(16), dp(4)), spacing=0)
         for indice, registro in enumerate(registros[:8]):
             tema = self.app.datos.tema(registro.tema_id)

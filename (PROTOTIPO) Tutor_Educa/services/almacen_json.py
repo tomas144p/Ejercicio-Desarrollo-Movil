@@ -41,9 +41,16 @@ class AlmacenIntentos:
 
     def agregar(self, intento: Intento) -> None:
         """Agrega un intento nuevo: lee el archivo, suma el registro y lo vuelve a guardar."""
+        self.agregar_varios([intento])
+
+    def agregar_varios(self, nuevos: list) -> int:
+        """Agrega varios intentos de una vez (sin repetir los que ya están, se comparan por ``codigo``)."""
         intentos = self.cargar()
-        intentos.append(intento)
-        self.guardar(intentos)
+        existentes = {i.codigo for i in intentos}
+        faltantes = [i for i in nuevos if i.codigo not in existentes]
+        if faltantes:
+            self.guardar(intentos + faltantes)
+        return len(faltantes)
 
     def de_estudiante(self, estudiante_id: int) -> list:
         """Intentos de un estudiante, del más reciente al más antiguo."""

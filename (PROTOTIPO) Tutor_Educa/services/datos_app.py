@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from typing import Callable
 
-from services.graficos import grafico_progreso
+from graficos import grafico_progreso
 from models.modelos import (Asignatura, Aviso, Curso, Estudiante, EstadoRefuerzo, FichaEstudiante, Intento,
-                       Tema, ahora_iso)
+                        Tema, ahora_iso)
 
 # Orden en que se muestran los refuerzos: primero lo que está en curso.
 ORDEN_ESTADOS = {EstadoRefuerzo.EN_PROGRESO: 0, EstadoRefuerzo.DISPONIBLE: 1, EstadoRefuerzo.LOGRADO: 2}
@@ -114,13 +114,13 @@ class ServicioDatos:
         fecha = ahora_iso()
         if self.local.avanzar_estado_refuerzo(estudiante_id, tema_id, EstadoRefuerzo.EN_PROGRESO, fecha):
             self._encolar("estado_refuerzo", {"estudiante_id": estudiante_id, "tema_id": tema_id,
-                                              "estado": EstadoRefuerzo.EN_PROGRESO, "fecha": fecha})
+                                                "estado": EstadoRefuerzo.EN_PROGRESO, "fecha": fecha})
 
     def registrar_intento(self, intento: Intento) -> bool:
         """Guarda el resultado de una prueba. Devuelve True si con esto el tema quedó logrado."""
         datos = {"codigo": intento.codigo, "estudiante_id": intento.estudiante_id, "tema_id": intento.tema_id,
-                 "correctas": intento.correctas, "total": intento.total, "porcentaje": intento.porcentaje,
-                 "nota": intento.nota, "realizado_en": intento.realizado_en, "origen": intento.origen}
+                    "correctas": intento.correctas, "total": intento.total, "porcentaje": intento.porcentaje,
+                    "nota": intento.nota, "realizado_en": intento.realizado_en, "origen": intento.origen}
         self.local.registrar_intento(datos, id_nuevo=self.local.id_local("intentos"))
         self.local.encolar("intento", datos)
         if self.almacen:
@@ -129,10 +129,10 @@ class ServicioDatos:
         if intento.logrado:
             fecha = ahora_iso()
             if self.local.avanzar_estado_refuerzo(intento.estudiante_id, intento.tema_id,
-                                                  EstadoRefuerzo.LOGRADO, fecha):
+                                                    EstadoRefuerzo.LOGRADO, fecha):
                 self.local.encolar("estado_refuerzo", {"estudiante_id": intento.estudiante_id,
-                                                       "tema_id": intento.tema_id,
-                                                       "estado": EstadoRefuerzo.LOGRADO, "fecha": fecha})
+                                                        "tema_id": intento.tema_id,
+                                                        "estado": EstadoRefuerzo.LOGRADO, "fecha": fecha})
                 logrado = True
         self._avisar()
         return logrado
@@ -150,13 +150,13 @@ class ServicioDatos:
 
     # --- Acciones del docente ----------------------------------------------
     def cambiar_desbloqueo(self, estudiante_id: int, tema_id: str, activo: bool,
-                           mensaje: str | None = None, avisar: bool = True) -> None:
+                            mensaje: str | None = None, avisar: bool = True) -> None:
         fecha = ahora_iso()
         self.local.guardar_refuerzo(estudiante_id, tema_id, activo, mensaje, self.usuario.id, fecha,
                                     id_nuevo=self.local.id_local("refuerzos"))
         self.local.encolar("desbloqueo", {"estudiante_id": estudiante_id, "tema_id": tema_id,
-                                          "activo": activo, "mensaje": mensaje,
-                                          "docente_id": self.usuario.id, "fecha": fecha})
+                                            "activo": activo, "mensaje": mensaje,
+                                            "docente_id": self.usuario.id, "fecha": fecha})
         if avisar:
             self._avisar()
 
@@ -168,16 +168,16 @@ class ServicioDatos:
 
     def publicar_aviso(self, aviso: Aviso) -> None:
         datos = {"codigo": aviso.codigo, "curso_id": aviso.curso_id, "estudiante_id": aviso.estudiante_id,
-                 "autor_id": aviso.autor_id, "titulo": aviso.titulo, "cuerpo": aviso.cuerpo,
-                 "tipo": aviso.tipo, "creado_en": aviso.creado_en}
+                    "autor_id": aviso.autor_id, "titulo": aviso.titulo, "cuerpo": aviso.cuerpo,
+                    "tipo": aviso.tipo, "creado_en": aviso.creado_en}
         self.local.publicar_aviso(datos, id_nuevo=self.local.id_local("avisos"))
         self._encolar("aviso", datos)
 
     def _a_aviso(self, fila: dict) -> Aviso:
         return Aviso(id=int(fila["id"]), codigo=fila["codigo"], curso_id=int(fila["curso_id"]),
-                     estudiante_id=int(fila["estudiante_id"]) if fila["estudiante_id"] is not None else None,
-                     autor_id=int(fila["autor_id"]), titulo=fila["titulo"], cuerpo=fila["cuerpo"],
-                     tipo=fila["tipo"], creado_en=fila["creado_en"], pendiente=int(fila["id"]) < 0)
+                        estudiante_id=int(fila["estudiante_id"]) if fila["estudiante_id"] is not None else None,
+                        autor_id=int(fila["autor_id"]), titulo=fila["titulo"], cuerpo=fila["cuerpo"],
+                        tipo=fila["tipo"], creado_en=fila["creado_en"], pendiente=int(fila["id"]) < 0)
 
     def avisos_curso(self, curso_id: int) -> list[Aviso]:
         """Avisos enviados por el docente, con cuántos apoderados los leyeron."""
@@ -195,7 +195,7 @@ class ServicioDatos:
         cursos = sorted({int(h["curso_id"]) for h in hijos})
         avisos = [self._a_aviso(f) for f in self.local.avisos(cursos, [int(h["id"]) for h in hijos])]
         leidos = {int(l["aviso_id"]) for l in self.local.lecturas([a.id for a in avisos])
-                  if int(l["usuario_id"]) == self.usuario.id}
+                    if int(l["usuario_id"]) == self.usuario.id}
         for aviso in avisos:
             aviso.leido = aviso.id in leidos
         return avisos
@@ -210,7 +210,7 @@ class ServicioDatos:
         if self.local.marcar_aviso_leido(aviso.id, self.usuario.id, fecha):
             aviso.leido = True
             self._encolar("aviso_leido", {"aviso_codigo": aviso.codigo, "usuario_id": self.usuario.id,
-                                          "fecha": fecha})
+                                            "fecha": fecha})
 
     # --- Cola ----------------------------------------------------------------
     def pendientes(self) -> int:

@@ -370,6 +370,8 @@ class Intento:
     @property
     def duracion_legible(self) -> str:
         """Duración para mostrar en pantalla, por ejemplo «1 min 12 s» o «45 s»."""
+        if self.duracion_seg <= 0:
+            return "sin dato"                     # pruebas antiguas, de antes de medir el tiempo
         segundos = int(round(self.duracion_seg))
         minutos, segundos = divmod(segundos, 60)
         return f"{minutos} min {segundos} s" if minutos else f"{segundos} s"

@@ -125,3 +125,10 @@ Se guarda con `to_dict()` en `datos_locales/intentos.json` y se lee de vuelta al
 Con los intentos guardados, `services/estadisticas.py` (NumPy) calcula nota promedio, variación y tendencia, y
 `services/graficos.py` (Matplotlib, motor Agg) dibuja el gráfico que se muestra en la bitácora. Instalar con
 `pip install -r requirements.txt` (incluye numpy y matplotlib).
+
+### Ver las librerías funcionando
+
+- En la app: entra como estudiante > pestaña *Progreso* > *Bitácora de práctica* (estadísticas con NumPy y gráfico con Matplotlib).
+  La primera vez, la bitácora copia al JSON las pruebas que ya había en la base de datos; cada prueba nueva agrega su registro con fecha y duración.
+- Por consola: `python herramientas/demo_librerias.py` guarda un JSON de prueba, imprime las estadísticas, genera
+  `datos_locales/grafico_demo.png` y compara un ciclo de Python con NumPy usando `time.perf_counter()`.

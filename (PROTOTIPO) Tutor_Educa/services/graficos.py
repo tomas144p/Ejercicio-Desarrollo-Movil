@@ -17,8 +17,8 @@ AZUL, VERDE, AMBAR, GRIS = "#2747C7", "#1E8E5A", "#D9902F", "#8A91A5"
 
 
 def grafico_progreso(intentos: list, ruta: Path) -> bool:
-    """Guarda en ``ruta`` el gráfico de las pruebas. Devuelve False si hay menos de 2 (no hay nada que comparar)."""
-    if len(intentos) < 2:
+    """Guarda en ``ruta`` el gráfico de las pruebas. Devuelve False si no hay ninguna prueba que dibujar."""
+    if not intentos:
         return False
     from matplotlib.backends.backend_agg import FigureCanvasAgg   # se importa aquí para no demorar el inicio de la app
     from matplotlib.figure import Figure
@@ -36,8 +36,9 @@ def grafico_progreso(intentos: list, ruta: Path) -> bool:
     # Notas por prueba + recta de tendencia (np.polyfit)
     arriba.plot(x, notas, marker="o", color=AZUL, linewidth=2, label="Nota")
     arriba.axhline(4.0, color=AMBAR, linestyle="--", linewidth=1, label="Nota 4,0")
-    pendiente, origen = np.polyfit(x, notas, 1)
-    arriba.plot(x, pendiente * x + origen, color=GRIS, linestyle=":", linewidth=1.6, label="Tendencia")
+    if len(notas) >= 2:                                      # la recta necesita al menos 2 puntos
+        pendiente, origen = np.polyfit(x, notas, 1)
+        arriba.plot(x, pendiente * x + origen, color=GRIS, linestyle=":", linewidth=1.6, label="Tendencia")
     arriba.set_ylim(1, 7.3)
     arriba.set_ylabel("Nota")
     arriba.set_title("Mi progreso en las pruebas", fontsize=11, fontweight="bold")
@@ -46,6 +47,8 @@ def grafico_progreso(intentos: list, ruta: Path) -> bool:
 
     # Duración de cada prueba
     abajo.bar(x, segundos, color=VERDE, width=0.55)
+    for posicion, valor in zip(x, segundos):                  # el valor sobre cada barra
+        abajo.text(posicion, valor, f"{valor:.0f} s" if valor else "sin dato", ha="center", va="bottom", fontsize=7.5)
     abajo.set_ylabel("Segundos")
     abajo.set_xticks(x)
     abajo.set_xticklabels(etiquetas, fontsize=8)

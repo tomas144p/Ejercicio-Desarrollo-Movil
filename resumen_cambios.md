@@ -148,5 +148,3 @@ pip install -r requirements.txt
 python main.py
 python -m unittest discover pruebas -v
 ```
-
-La carpeta antigua `tutor_educa/` ya no existe. Hay que usar el proyecto nuevo completo, no copiarlo encima del anterior.

@@ -357,12 +357,12 @@ class Intento:
 
     @classmethod
     def nuevo(cls, estudiante_id: int, tema_id: str, correctas: int, total: int,
-              origen: str = "app") -> "Intento":
+                origen: str = "app") -> "Intento":
         porcentaje = round(100 * correctas / total) if total else 0
         return cls(id=None, codigo=uuid.uuid4().hex, estudiante_id=estudiante_id,
-                   tema_id=tema_id, correctas=correctas, total=total,
-                   porcentaje=porcentaje, nota=EscalaNotas.nota(correctas, total),
-                   realizado_en=ahora_iso(), origen=origen)
+                    tema_id=tema_id, correctas=correctas, total=total,
+                    porcentaje=porcentaje, nota=EscalaNotas.nota(correctas, total),
+                    realizado_en=ahora_iso(), origen=origen)
 
 
 @dataclass

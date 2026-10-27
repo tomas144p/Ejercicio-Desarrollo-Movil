@@ -147,8 +147,8 @@ class CorrectorRespuestas:
 
     def corregir(self, pregunta: Pregunta, respuesta: str) -> ResultadoRespuesta:
         return ResultadoRespuesta(correcta=self.es_correcta(pregunta, respuesta),
-                                  respuesta_correcta=pregunta.respuesta_para_mostrar,
-                                  explicacion=pregunta.explicacion)
+                                    respuesta_correcta=pregunta.respuesta_para_mostrar,
+                                    explicacion=pregunta.explicacion)
 
 
 @dataclass

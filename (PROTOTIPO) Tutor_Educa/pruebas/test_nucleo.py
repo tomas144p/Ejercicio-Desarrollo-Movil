@@ -30,11 +30,11 @@ from services.evaluacion import CorrectorRespuestas, SesionPrueba  # noqa: E402
 from services.almacen_json import AlmacenIntentos  # noqa: E402
 from services.cronometro import Cronometro  # noqa: E402
 from services.estadisticas import resumen, tendencia  # noqa: E402
-from graficos import grafico_progreso  # noqa: E402
+from services.graficos import grafico_progreso  # noqa: E402
 from services.validaciones import (validar_aviso, validar_clave, validar_correo,  # noqa: E402
-                                    validar_respuesta)
+                                   validar_respuesta)
 from models.modelos import (Aviso, EscalaNotas, EstadoRefuerzo, Intento, Pregunta,  # noqa: E402
-                                    Usuario)
+                                 Usuario)
 from services.seguridad import GestorClaves  # noqa: E402
 from services.autenticacion import ServicioAutenticacion  # noqa: E402
 from services.datos_app import ServicioDatos  # noqa: E402
@@ -64,11 +64,11 @@ class PruebasBasicas(unittest.TestCase):
     def test_corrector_acepta_variantes(self):
         c = CorrectorRespuestas()
         casos = [("5", ["5", "x = 5", "x=5", " 5 ", "5.", "5 cm"]),
-                    ("-10", ["-10", "−10", "x = −10", "–10"]),
-                    ("0.75", ["0,75", "0.75", "3/4", "6/8"]),
-                    ("32000", ["32000", "32.000", "$32.000", "32 000", "$ 32.000"]),
-                    ("5/6", ["5/6", "10/12", "0,83", "0.833"]),
-                    ("20", ["20", "20%", "20 %"])]
+                 ("-10", ["-10", "−10", "x = −10", "–10"]),
+                 ("0.75", ["0,75", "0.75", "3/4", "6/8"]),
+                 ("32000", ["32000", "32.000", "$32.000", "32 000", "$ 32.000"]),
+                 ("5/6", ["5/6", "10/12", "0,83", "0.833"]),
+                 ("20", ["20", "20%", "20 %"])]
         for esperada, respuestas in casos:
             for r in respuestas:
                 self.assertTrue(c.es_correcta(pregunta(esperada), r), f"{r!r} debería valer {esperada}")
@@ -91,7 +91,7 @@ class PruebasBasicas(unittest.TestCase):
         c = CorrectorRespuestas()
         for fila in datos["preguntas"]:
             p = Pregunta(fila["id"], fila["tema_id"], fila["orden"], fila["enunciado"], fila["tipo"],
-                            fila["alternativas"], fila["respuesta"])
+                         fila["alternativas"], fila["respuesta"])
             self.assertTrue(c.es_correcta(p, p.respuesta_para_mostrar), f"Pregunta {fila['id']}: {fila['enunciado']}")
             if p.es_alternativas:
                 self.assertIn(p.respuesta, p.alternativas)
@@ -313,6 +313,13 @@ class PruebasPersistenciaJSON(unittest.TestCase):
         with open(self.ruta, "r", encoding="utf-8") as archivo:
             self.assertEqual(len(json.load(archivo)), 2)
 
+    def test_agregar_varios_sin_repetir(self):
+        almacen = AlmacenIntentos(self.ruta)
+        uno = Intento.nuevo(1, "a", 5, 5)
+        self.assertEqual(almacen.agregar_varios([uno]), 1)
+        self.assertEqual(almacen.agregar_varios([uno, Intento.nuevo(1, "b", 2, 5)]), 1)   # «uno» ya estaba
+        self.assertEqual(len(almacen.cargar()), 2)
+
     def test_archivo_dañado(self):
         self.ruta.write_text("{ esto no es json", encoding="utf-8")
         self.assertEqual(AlmacenIntentos(self.ruta).cargar(), [])
@@ -330,7 +337,8 @@ class PruebasPersistenciaJSON(unittest.TestCase):
     def test_grafico_matplotlib(self):
         intentos = [Intento.nuevo(1, "a", 3, 5, duracion_seg=40), Intento.nuevo(1, "a", 5, 5, duracion_seg=60)]
         png = Path(self.carpeta.name) / "grafico.png"
-        self.assertFalse(grafico_progreso(intentos[:1], png))      # con un solo dato no hay gráfico
+        self.assertFalse(grafico_progreso([], png))                # sin datos no hay gráfico
+        self.assertTrue(grafico_progreso(intentos[:1], png))       # con un solo dato ya se dibuja
         self.assertTrue(grafico_progreso(intentos, png))
         self.assertGreater(png.stat().st_size, 1000)
 

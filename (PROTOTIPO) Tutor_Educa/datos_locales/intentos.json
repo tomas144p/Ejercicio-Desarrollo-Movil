@@ -1,0 +1,26 @@
+[
+  {
+    "codigo": "demo-intento-2",
+    "estudiante_id": 2,
+    "tema_id": "mat-ecuaciones",
+    "correctas": 2,
+    "total": 5,
+    "porcentaje": 40,
+    "nota": 3.0,
+    "realizado_en": "2026-10-23 19:00:00",
+    "origen": "app",
+    "duracion_seg": 0.0
+  },
+  {
+    "codigo": "demo-intento-1",
+    "estudiante_id": 2,
+    "tema_id": "mat-fracciones",
+    "correctas": 4,
+    "total": 5,
+    "porcentaje": 80,
+    "nota": 5.5,
+    "realizado_en": "2026-10-10 19:00:00",
+    "origen": "app",
+    "duracion_seg": 0.0
+  }
+]

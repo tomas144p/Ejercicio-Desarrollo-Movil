@@ -26,9 +26,12 @@ from typing import ClassVar, Optional
 UMBRAL_REFUERZO = 5.0
 
 
+FORMATO_FECHA = "%Y-%m-%d %H:%M:%S"
+
+
 def ahora_iso() -> str:
-    """Fecha y hora actual en el formato que usan ambas bases de datos."""
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    """Fecha y hora actual (timestamp automático) en el formato que usan la base de datos y el JSON."""
+    return datetime.now().strftime(FORMATO_FECHA)
 
 
 def redondear(valor: float, decimales: int = 1) -> float:
@@ -350,19 +353,51 @@ class Intento:
     nota: float
     realizado_en: str
     origen: str = "app"
+    duracion_seg: float = 0.0   # lo que tardó en responder la prueba (se mide con time.perf_counter)
 
     @property
     def logrado(self) -> bool:
         return self.porcentaje >= PORCENTAJE_LOGRO
 
+    @property
+    def fecha_legible(self) -> str:
+        """Fecha y hora para mostrar en pantalla, por ejemplo «25/10/2026 14:30»."""
+        try:
+            return datetime.strptime(self.realizado_en, FORMATO_FECHA).strftime("%d/%m/%Y %H:%M")
+        except (TypeError, ValueError):
+            return self.realizado_en or ""
+
+    @property
+    def duracion_legible(self) -> str:
+        """Duración para mostrar en pantalla, por ejemplo «1 min 12 s» o «45 s»."""
+        segundos = int(round(self.duracion_seg))
+        minutos, segundos = divmod(segundos, 60)
+        return f"{minutos} min {segundos} s" if minutos else f"{segundos} s"
+
+    def to_dict(self) -> dict:
+        """Convierte el intento en un diccionario simple, listo para json.dump()."""
+        return {"codigo": self.codigo, "estudiante_id": self.estudiante_id, "tema_id": self.tema_id,
+                "correctas": self.correctas, "total": self.total, "porcentaje": self.porcentaje,
+                "nota": self.nota, "realizado_en": self.realizado_en, "origen": self.origen,
+                "duracion_seg": self.duracion_seg}
+
+    @classmethod
+    def desde_dict(cls, datos: dict) -> "Intento":
+        """Operación inversa de to_dict(): reconstruye el objeto leído con json.load()."""
+        return cls(id=None, codigo=datos["codigo"], estudiante_id=int(datos["estudiante_id"]),
+                   tema_id=datos["tema_id"], correctas=int(datos["correctas"]), total=int(datos["total"]),
+                   porcentaje=int(datos["porcentaje"]), nota=float(datos["nota"]),
+                   realizado_en=datos["realizado_en"], origen=datos.get("origen", "app"),
+                   duracion_seg=float(datos.get("duracion_seg", 0.0)))
+
     @classmethod
     def nuevo(cls, estudiante_id: int, tema_id: str, correctas: int, total: int,
-              origen: str = "app") -> "Intento":
+              origen: str = "app", duracion_seg: float = 0.0) -> "Intento":
         porcentaje = round(100 * correctas / total) if total else 0
         return cls(id=None, codigo=uuid.uuid4().hex, estudiante_id=estudiante_id,
                    tema_id=tema_id, correctas=correctas, total=total,
                    porcentaje=porcentaje, nota=EscalaNotas.nota(correctas, total),
-                   realizado_en=ahora_iso(), origen=origen)
+                   realizado_en=ahora_iso(), origen=origen, duracion_seg=round(duracion_seg, 1))
 
 
 @dataclass

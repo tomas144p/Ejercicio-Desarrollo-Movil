@@ -23,6 +23,7 @@ from kivy.uix.widget import Widget
 from services.evaluacion import SesionPrueba
 from services.validaciones import validar_respuesta
 from models.modelos import EscalaNotas, Intento, Rol
+from services.cronometro import Cronometro
 from views.componentes import (BarraProgreso, BloqueCuaderno, Boton, CajaNota, CampoTexto, Columna, Fila, FilaLista,
                            Icono, InsigniaIcono, Separador, Superficie, Texto, encabezado_seccion)
 from views.estilo import Paleta, Tipografia
@@ -166,6 +167,9 @@ class PantallaLeccion(PantallaBase):
 
     def _comenzar(self) -> None:
         self.sesion = SesionPrueba(self.app.datos.preguntas(self.tema.id))
+        self.cronometro = Cronometro()
+        self.cronometro.iniciar()             # empieza a medir el tiempo de la prueba
+        self._duracion = 0.0
         self._reiniciar_pregunta()
         self.dibujar()
 
@@ -248,18 +252,24 @@ class PantallaLeccion(PantallaBase):
         self.sesion.siguiente()
         self._reiniciar_pregunta()
         if self.sesion.terminada:
+            self._duracion = self.cronometro.detener()   # segundos que tardó en rendir la prueba
             self._guardar_resultado()
         self.dibujar()
 
     def _guardar_resultado(self) -> None:
         if not self._es_estudiante:
             return
-        intento = Intento.nuevo(self.estudiante_id, self.tema.id, self.sesion.correctas, self.sesion.total)
+        intento = Intento.nuevo(self.estudiante_id, self.tema.id, self.sesion.correctas, self.sesion.total,
+                                duracion_seg=self._duracion)
         self._logro_nuevo = self.app.datos.registrar_intento(intento)
         mensaje = "Resultado guardado."
         if not self.app.en_linea:
             mensaje += " Se enviará a tu docente cuando vuelva la conexión."
         self.app.notificador.mostrar(mensaje, "exito" if self.app.en_linea else "aviso")
+
+    def _duracion_texto(self) -> str:
+        minutos, segundos = divmod(int(round(self._duracion)), 60)
+        return f"{minutos} min {segundos} s" if minutos else f"{segundos} s"
 
     def _resultado_prueba(self, c) -> None:
         sesion = self.sesion
@@ -274,7 +284,7 @@ class PantallaLeccion(PantallaBase):
         tarjeta.add_widget(Texto(f"{sesion.porcentaje} %", tamano=40, fuente=Tipografia.NEGRITA, color_texto=tinta,
                                  alinear="center"))
         tarjeta.add_widget(Texto(f"{sesion.correctas} de {sesion.total} correctas. Nota estimada "
-                                 f"{EscalaNotas.formatear(sesion.nota)}.", tamano=14.5,
+                                 f"{EscalaNotas.formatear(sesion.nota)}. Tiempo: {self._duracion_texto()}.", tamano=14.5,
                                  color_texto=Paleta.TINTA_SUAVE, alinear="center"))
         tarjeta.add_widget(Texto(sesion.mensaje_final(), tamano=15, fuente=Tipografia.MEDIA, alinear="center"))
         if self._logro_nuevo:

@@ -19,6 +19,7 @@ from views.ficha_estudiante_screen import PantallaFichaEstudiante
 from views.ingreso_screen import PantallaIngreso
 from views.leccion_screen import PantallaLeccion
 from views.raiz import RaizApp
+from services.almacen_json import AlmacenIntentos
 from services.autenticacion import ServicioAutenticacion
 from services.conexion import MonitorConexion
 from services.datos_app import ServicioDatos
@@ -55,7 +56,8 @@ class ConstruccionApp:
         self.monitor = MonitorConexion(self.gestor_servidor, self.ejecutor_datos, url_internet=url_internet)
         self.sincronizacion = ServicioSincronizacion(self.local, self.gestor_servidor)
         self.autenticacion = ServicioAutenticacion(self.local, self.gestor_servidor, self.sincronizacion, self.monitor)
-        self.datos = ServicioDatos(self.local, al_haber_cambios=self._hubo_cambios)
+        self.datos = ServicioDatos(self.local, al_haber_cambios=self._hubo_cambios,
+                                   almacen=AlmacenIntentos(carpeta / "intentos.json"))
         self.tutor_ia = ServicioTutorIA(self.configuracion.ia, self.datos)
         self.pendientes = self.local.cantidad_pendientes()
         self._sincronizar_de_nuevo = False

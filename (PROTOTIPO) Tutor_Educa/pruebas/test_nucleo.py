@@ -11,6 +11,7 @@ se prueba el camino MySQL en una base temporal "tutor_educa_pruebas".
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 import tempfile
@@ -26,6 +27,10 @@ from models.datos.esquema import crear_esquema  # noqa: E402
 from models.datos.local import BaseDatosLocal  # noqa: E402
 from models.datos.servidor import GestorServidor, ServidorRemoto  # noqa: E402
 from services.evaluacion import CorrectorRespuestas, SesionPrueba  # noqa: E402
+from services.almacen_json import AlmacenIntentos  # noqa: E402
+from services.cronometro import Cronometro  # noqa: E402
+from services.estadisticas import resumen, tendencia  # noqa: E402
+from services.graficos import grafico_progreso  # noqa: E402
 from services.validaciones import (validar_aviso, validar_clave, validar_correo,  # noqa: E402
                                    validar_respuesta)
 from models.modelos import (Aviso, EscalaNotas, EstadoRefuerzo, Intento, Pregunta,  # noqa: E402
@@ -271,6 +276,69 @@ class PruebasMySQL(unittest.TestCase):
         datos.registrar_intento(Intento.nuevo(resultado.usuario.id, "mat-ecuaciones", 4, 5))
         self.assertEqual(sinc.sincronizar(resultado.usuario).enviados, 2)
         self.assertEqual(self.conexion.valor("SELECT COUNT(*) FROM intentos WHERE estudiante_id = 2"), 3)
+
+
+class PruebasPersistenciaJSON(unittest.TestCase):
+    """Intento.to_dict(), almacén JSON, fechas automáticas y cronómetro."""
+
+    def setUp(self):
+        self.carpeta = tempfile.TemporaryDirectory()
+        self.addCleanup(self.carpeta.cleanup)
+        self.ruta = Path(self.carpeta.name) / "intentos.json"
+
+    def test_to_dict_y_desde_dict(self):
+        intento = Intento.nuevo(7, "mat-ecuaciones", 4, 5, duracion_seg=72.4)
+        datos = intento.to_dict()
+        self.assertEqual(datos["correctas"], 4)
+        self.assertEqual(datos["duracion_seg"], 72.4)
+        copia = Intento.desde_dict(datos)
+        self.assertEqual(copia.to_dict(), datos)
+
+    def test_fecha_automatica_y_legible(self):
+        intento = Intento.nuevo(1, "t", 3, 5)
+        self.assertRegex(intento.realizado_en, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+        self.assertRegex(intento.fecha_legible, r"^\d{2}/\d{2}/\d{4} \d{2}:\d{2}$")
+        intento.duracion_seg = 72
+        self.assertEqual(intento.duracion_legible, "1 min 12 s")
+
+    def test_guardar_y_recuperar(self):
+        almacen = AlmacenIntentos(self.ruta)
+        self.assertEqual(almacen.cargar(), [])          # sin archivo: lista vacía
+        almacen.agregar(Intento.nuevo(1, "a", 5, 5, duracion_seg=30))
+        almacen.agregar(Intento.nuevo(2, "b", 2, 5, duracion_seg=50))
+        reabierto = AlmacenIntentos(self.ruta)          # como si se reiniciara la app
+        self.assertEqual(len(reabierto.cargar()), 2)
+        self.assertEqual(len(reabierto.de_estudiante(1)), 1)
+        self.assertEqual(resumen(reabierto.cargar())["duracion_promedio"], 40)
+        with open(self.ruta, "r", encoding="utf-8") as archivo:
+            self.assertEqual(len(json.load(archivo)), 2)
+
+    def test_archivo_dañado(self):
+        self.ruta.write_text("{ esto no es json", encoding="utf-8")
+        self.assertEqual(AlmacenIntentos(self.ruta).cargar(), [])
+
+    def test_estadisticas_numpy(self):
+        self.assertEqual(resumen([])["cantidad"], 0)
+        self.assertEqual(tendencia([3.0, 4.0, 5.5, 6.0]), "mejorando")
+        self.assertEqual(tendencia([6.0, 5.0, 3.5]), "bajando")
+        self.assertEqual(tendencia([5.0, 5.0, 5.0]), "estable")
+        intentos = [Intento.nuevo(1, "a", 5, 5), Intento.nuevo(1, "a", 3, 5)]
+        datos = resumen(intentos)
+        self.assertEqual(datos["cantidad"], 2)
+        self.assertAlmostEqual(datos["nota_promedio"], (intentos[0].nota + intentos[1].nota) / 2)
+
+    def test_grafico_matplotlib(self):
+        intentos = [Intento.nuevo(1, "a", 3, 5, duracion_seg=40), Intento.nuevo(1, "a", 5, 5, duracion_seg=60)]
+        png = Path(self.carpeta.name) / "grafico.png"
+        self.assertFalse(grafico_progreso(intentos[:1], png))      # con un solo dato no hay gráfico
+        self.assertTrue(grafico_progreso(intentos, png))
+        self.assertGreater(png.stat().st_size, 1000)
+
+    def test_cronometro(self):
+        reloj = Cronometro()
+        self.assertEqual(reloj.detener(), 0.0)
+        reloj.iniciar()
+        self.assertGreaterEqual(reloj.detener(), 0.0)
 
 
 class PruebasValidaciones(unittest.TestCase):

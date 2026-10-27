@@ -11,8 +11,10 @@ Pestañas:
 from __future__ import annotations
 
 from kivy.metrics import dp
+from kivy.uix.image import Image as Imagen
 
 from models.modelos import EscalaNotas, EstadoRefuerzo
+from services.estadisticas import resumen
 from views.componentes import (BarraProgreso, CajaNota, Columna, EstadoVacio, Etiqueta, Fila, FilaLista, Icono,
                            InsigniaIcono, Metrica, Separador, Superficie, TarjetaTocable, Texto,
                            encabezado_seccion, insignia_nota)
@@ -174,6 +176,7 @@ class PantallaEstudiante(PantallaConPestanas):
         if not ficha.intentos:
             c.add_widget(EstadoVacio("target", "Todavía no rindes pruebas",
                                      "Cuando termines la prueba de un tema, tu resultado aparecerá aquí."))
+            self._bitacora(c)
             return
         lista = Superficie(padding=(dp(16), dp(4)), spacing=0)
         for indice, intento in enumerate(ficha.intentos):
@@ -186,6 +189,43 @@ class PantallaEstudiante(PantallaConPestanas):
                                        f"{FormatoTexto.fecha_relativa(intento.realizado_en)}",
                                        inicio=InsigniaIcono(icono, tinta=tinta, lado=38, redonda=True),
                                        fin=insignia_nota(intento.nota, lado=42)))
+        c.add_widget(lista)
+        self._bitacora(c)
+
+    def _bitacora(self, c) -> None:
+        """Bitácora de práctica: las pruebas guardadas en el archivo JSON del dispositivo."""
+        registros = self.app.datos.bitacora(self.ficha.estudiante.id)
+        c.add_widget(encabezado_seccion("Bitácora de práctica"))
+        if not registros:
+            c.add_widget(EstadoVacio("clock", "Aún no hay registros guardados",
+                                     "Cada prueba que rindas se guarda en este dispositivo con su fecha y duración."))
+            return
+        tarjeta = Superficie(spacing=dp(8))
+        fila = Fila()
+        fila.add_widget(Metrica(str(len(registros)), "Registros guardados"))
+        fila.add_widget(Metrica(f"{registros[0].duracion_seg:.0f} s" if registros[0].duracion_seg else "-", "Última prueba"))
+        datos = resumen(registros)                      # estadísticas con NumPy (services/estadisticas.py)
+        fila.add_widget(Metrica(f"{datos['duracion_promedio']:.0f} s" if datos["duracion_promedio"] else "-",
+                                "Tiempo promedio"))
+        tarjeta.add_widget(fila)
+        tarjeta.add_widget(Texto(f"Nota promedio {EscalaNotas.formatear(datos['nota_promedio'])} "
+                                 f"(variación {datos['nota_desviacion']:.1f}). Tendencia: {datos['tendencia']}.",
+                                 tamano=13.5, color_texto=Paleta.TINTA_SUAVE))
+        c.add_widget(tarjeta)
+        ruta_grafico = self.app.datos.grafico_progreso(self.ficha.estudiante.id)   # gráfico con Matplotlib
+        if ruta_grafico:
+            c.add_widget(Imagen(source=str(ruta_grafico), nocache=True, size_hint_y=None, height=dp(300),
+                                fit_mode="contain"))
+        lista = Superficie(padding=(dp(16), dp(4)), spacing=0)
+        for indice, registro in enumerate(registros[:8]):
+            tema = self.app.datos.tema(registro.tema_id)
+            if indice:
+                lista.add_widget(Separador())
+            lista.add_widget(FilaLista(tema.titulo if tema else registro.tema_id,
+                                       f"{registro.fecha_legible} · {registro.correctas} de {registro.total} "
+                                       f"correctas · {registro.duracion_legible}",
+                                       inicio=InsigniaIcono("clock", tinta=Paleta.AZUL, lado=38, redonda=True),
+                                       fin=insignia_nota(registro.nota, lado=42)))
         c.add_widget(lista)
 
     # ------------------------------------------------------------------

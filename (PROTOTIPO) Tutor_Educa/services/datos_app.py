@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+from services.graficos import grafico_progreso
 from models.modelos import (Asignatura, Aviso, Curso, Estudiante, EstadoRefuerzo, FichaEstudiante, Intento,
                        Tema, ahora_iso)
 
@@ -19,8 +20,9 @@ ORDEN_ESTADOS = {EstadoRefuerzo.EN_PROGRESO: 0, EstadoRefuerzo.DISPONIBLE: 1, Es
 
 
 class ServicioDatos:
-    def __init__(self, local, al_haber_cambios: Callable | None = None):
+    def __init__(self, local, al_haber_cambios: Callable | None = None, almacen=None):
         self.local = local
+        self.almacen = almacen            # AlmacenIntentos (JSON); puede ser None en las pruebas
         self.usuario = None
         self._al_haber_cambios = al_haber_cambios
         self._temas: dict[str, Tema] | None = None
@@ -121,6 +123,8 @@ class ServicioDatos:
                  "nota": intento.nota, "realizado_en": intento.realizado_en, "origen": intento.origen}
         self.local.registrar_intento(datos, id_nuevo=self.local.id_local("intentos"))
         self.local.encolar("intento", datos)
+        if self.almacen:
+            self.almacen.agregar(intento)      # bitácora local en JSON (persiste al cerrar la app)
         logrado = False
         if intento.logrado:
             fecha = ahora_iso()
@@ -132,6 +136,17 @@ class ServicioDatos:
                 logrado = True
         self._avisar()
         return logrado
+
+    def bitacora(self, estudiante_id: int) -> list:
+        """Pruebas del estudiante leídas desde el archivo JSON, de la más reciente a la más antigua."""
+        return self.almacen.de_estudiante(estudiante_id) if self.almacen else []
+
+    def grafico_progreso(self, estudiante_id: int):
+        """Genera el gráfico (PNG) de las pruebas del estudiante. Devuelve su ruta, o None si aún no hay suficientes datos."""
+        if not self.almacen:
+            return None
+        ruta = self.almacen.ruta.parent / f"grafico_progreso_{estudiante_id}.png"
+        return ruta if grafico_progreso(self.almacen.de_estudiante(estudiante_id), ruta) else None
 
     # --- Acciones del docente ----------------------------------------------
     def cambiar_desbloqueo(self, estudiante_id: int, tema_id: str, activo: bool,

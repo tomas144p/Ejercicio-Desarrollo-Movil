@@ -6,3 +6,6 @@ KivyMD>=2.0.0
 PyMySQL>=1.1
 # Certificados HTTPS para el chat con IA (necesario sobre todo en Android)
 certifi
+# Estadísticas y gráficos de la bitácora de práctica
+numpy
+matplotlib

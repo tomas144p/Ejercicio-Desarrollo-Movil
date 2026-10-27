@@ -1,0 +1,9 @@
+{
+  "_instrucciones": "Copia este archivo como config.local.json (no se sube a GitHub) y completa solo lo que necesites.",
+  "servidor": {
+    "clave": ""
+  },
+  "ia": {
+    "api_key": "sk-ant-...pega-aqui-tu-clave..."
+  }
+}

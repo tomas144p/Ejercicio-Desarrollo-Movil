@@ -74,6 +74,10 @@ views/                          LA VISTA: solo KivyMD/Kivy, muestra datos y capt
   ingreso_screen.py ...         Una pantalla por archivo (ingreso, estudiante, leccion, chat, docente, ficha, apoderado)
 services/                       LA LÓGICA: Python puro, sin importar Kivy
   validaciones.py               Valida correo, clave, avisos y respuestas (lanza ValueError)
+  almacen_json.py               Guarda y lee los intentos en datos_locales/intentos.json (with open + utf-8)
+  cronometro.py                 Mide la duración de cada prueba con time.perf_counter()
+  estadisticas.py               Promedios y tendencia de las notas con NumPy
+  graficos.py                   Gráfico de progreso con Matplotlib (guarda un PNG)
   evaluacion.py                 Corrector flexible de respuestas y lógica de la prueba
   autenticacion.py, sincronizacion.py, conexion.py, datos_app.py, tareas.py
   configuracion.py, seguridad.py
@@ -111,3 +115,13 @@ Las pruebas revisan, entre otras cosas, que cada respuesta guardada en la materi
 ## Nota sobre seguridad
 
 En este prototipo la app se conecta **directamente** a MySQL, lo que sirve para trabajar con phpMyAdmin en clases. En una versión real, el teléfono debería hablar con una **API intermedia** (por ejemplo en PHP o Python), que es la única con acceso a la base y que valida los permisos de cada rol. Por la misma razón, la clave de la IA debería vivir en ese servidor y no en el teléfono. Ver `PENDIENTES.md`.
+
+## Persistencia local en JSON (bitácora de práctica)
+
+Cada prueba que rinde un estudiante es un objeto `Intento` (`models/modelos.py`) con fecha automática y duración.
+Se guarda con `to_dict()` en `datos_locales/intentos.json` y se lee de vuelta al reiniciar la app
+(pestaña *Progreso* > *Bitácora de práctica*). El archivo se crea la primera vez que se rinde una prueba.
+
+Con los intentos guardados, `services/estadisticas.py` (NumPy) calcula nota promedio, variación y tendencia, y
+`services/graficos.py` (Matplotlib, motor Agg) dibuja el gráfico que se muestra en la bitácora. Instalar con
+`pip install -r requirements.txt` (incluye numpy y matplotlib).

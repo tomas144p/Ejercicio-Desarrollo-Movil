@@ -57,16 +57,16 @@ class Paleta:
     AMBAR, AMBAR_SUAVE = "#B36F00", "#FFF2D6"
 
     POR_ROL = {"estudiante": (AZUL, AZUL_SUAVE), "docente": (PIZARRA, PIZARRA_SUAVE),
-               "apoderado": (MORA, MORA_SUAVE)}
+                "apoderado": (MORA, MORA_SUAVE)}
     POR_CATEGORIA_NOTA = {"insuficiente": (ROJO, ROJO_SUAVE), "en_riesgo": (AMBAR, AMBAR_SUAVE),
-                          "adecuado": (TINTA, GRIS_SUAVE), "destacado": (VERDE, VERDE_SUAVE),
-                          "sin_nota": (TINTA_TENUE, GRIS_SUAVE)}
+                            "adecuado": (TINTA, GRIS_SUAVE), "destacado": (VERDE, VERDE_SUAVE),
+                            "sin_nota": (TINTA_TENUE, GRIS_SUAVE)}
     POR_ESTADO = {"disponible": (AZUL, AZUL_SUAVE), "en_progreso": (AMBAR, AMBAR_SUAVE),
-                  "logrado": (VERDE, VERDE_SUAVE)}
+                    "logrado": (VERDE, VERDE_SUAVE)}
     POR_TIPO_AVISO = {"info": (AZUL, AZUL_SUAVE, "info", "Información"),
-                      "evaluacion": (AMBAR, AMBAR_SUAVE, "calendar", "Evaluación"),
-                      "refuerzo": (MORA, MORA_SUAVE, "book-open", "Refuerzo"),
-                      "logro": (VERDE, VERDE_SUAVE, "trophy", "Logro")}
+                        "evaluacion": (AMBAR, AMBAR_SUAVE, "calendar", "Evaluación"),
+                        "refuerzo": (MORA, MORA_SUAVE, "book-open", "Refuerzo"),
+                        "logro": (VERDE, VERDE_SUAVE, "trophy", "Logro")}
     SUAVE_DE = {AZUL: AZUL_SUAVE, PIZARRA: PIZARRA_SUAVE, MORA: MORA_SUAVE, ROJO: ROJO_SUAVE,
                 VERDE: VERDE_SUAVE, AMBAR: AMBAR_SUAVE}
 
@@ -108,8 +108,8 @@ class Iconos:
     def caracter(cls, nombre: str) -> str:
         if cls._mapa is None:
             cls._mapa = json.loads((CARPETA_FUENTES / "lucide-codepoints.json").read_text(encoding="utf-8"))
-        codigo = cls._mapa.get(nombre) or cls._mapa.get("circle-help")
-        return chr(int(codigo))
+        codigo = cls._mapa.get(nombre) or cls._mapa.get("circle-help") # type: ignore
+        return chr(int(codigo)) # type: ignore
 
     @classmethod
     def markup(cls, nombre: str, tamano: float) -> str:

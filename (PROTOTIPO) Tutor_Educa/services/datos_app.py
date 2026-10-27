@@ -13,7 +13,7 @@ from typing import Callable
 
 from services.graficos import grafico_progreso
 from models.modelos import (Asignatura, Aviso, Curso, Estudiante, EstadoRefuerzo, FichaEstudiante, Intento,
-                       Tema, ahora_iso)
+                        Tema, ahora_iso)
 
 # Orden en que se muestran los refuerzos: primero lo que está en curso.
 ORDEN_ESTADOS = {EstadoRefuerzo.EN_PROGRESO: 0, EstadoRefuerzo.DISPONIBLE: 1, EstadoRefuerzo.LOGRADO: 2}

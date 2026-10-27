@@ -15,8 +15,8 @@ from kivy.uix.stacklayout import StackLayout
 
 from models.modelos import EscalaNotas, EstadoRefuerzo
 from views.componentes import (Avatar, BarraProgreso, Boton, CajaNota, Chip, Columna, EstadoVacio, Etiqueta, Fila,
-                           FilaLista, InsigniaIcono, Metrica, Separador, Superficie, TarjetaTocable, Texto,
-                           encabezado_seccion)
+                            FilaLista, InsigniaIcono, Metrica, Separador, Superficie, TarjetaTocable, Texto,
+                            encabezado_seccion)
 from views.dialogos import Dialogo
 from views.estilo import FormatoTexto, Paleta, Tipografia, color
 from views.base_screen import PantallaConPestanas
@@ -63,8 +63,8 @@ class PantallaApoderado(PantallaConPestanas):
     def _sin_datos(self, c) -> bool:
         if self.ficha is None:
             c.add_widget(EstadoVacio("cloud-off", "Aún no hay datos en este dispositivo",
-                                     "Ingresa una vez con conexión para descargar la información de tu estudiante.",
-                                     tinta=self.ACENTO))
+                                        "Ingresa una vez con conexión para descargar la información de tu estudiante.",
+                                        tinta=self.ACENTO))
             return True
         return False
 
@@ -78,12 +78,12 @@ class PantallaApoderado(PantallaConPestanas):
             selector.bind(minimum_height=selector.setter("height"))
             for hijo in self.hijos:
                 selector.add_widget(Chip(hijo.estudiante.primer_nombre, seleccionado=hijo.estudiante.id == self.hijo_id,
-                                         acento=self.ACENTO,
-                                         al_presionar=lambda e=hijo.estudiante.id: self._elegir_hijo(e)))
+                                            acento=self.ACENTO,
+                                            al_presionar=lambda e=hijo.estudiante.id: self._elegir_hijo(e)))
             c.add_widget(selector)
         if not self.app.en_linea:
             c.add_widget(CajaNota("Sin conexión", "Estás viendo los datos de la última sincronización.",
-                                  icono="wifi-off", tinta=Paleta.AMBAR))
+                                    icono="wifi-off", tinta=Paleta.AMBAR))
 
         activos = [r for r in ficha.refuerzos_activos if r.tema]
         logrados = sum(1 for r in activos if r.estado == EstadoRefuerzo.LOGRADO)
@@ -107,8 +107,8 @@ class PantallaApoderado(PantallaConPestanas):
         no_leidos = sum(1 for a in self.avisos if not a.leido)
         if no_leidos:
             c.add_widget(Boton(f"Tienes {no_leidos} {'aviso' if no_leidos == 1 else 'avisos'} sin leer", icono="bell",
-                               variante="secundario", acento=self.ACENTO,
-                               al_presionar=lambda: self.cambiar_pestana("avisos")))
+                                variante="secundario", acento=self.ACENTO,
+                                al_presionar=lambda: self.cambiar_pestana("avisos")))
 
         c.add_widget(encabezado_seccion("Rendimiento por asignatura", "Escala de 1,0 a 7,0. Se aprueba con 4,0."))
         lista = Superficie(spacing=dp(14))
@@ -117,10 +117,10 @@ class PantallaApoderado(PantallaConPestanas):
             tinta = Paleta.POR_CATEGORIA_NOTA[EscalaNotas.categoria(nota)][0]
             fila = Fila(spacing=dp(12))
             fila.add_widget(Texto(asignatura.nombre, tamano=13.5, fuente=Tipografia.MEDIA, size_hint_x=None,
-                                  width=dp(128), pos_hint=CENTRO))
+                                    width=dp(128), pos_hint=CENTRO))
             fila.add_widget(BarraProgreso((nota or 0) / 7, color_barra=tinta, pos_hint=CENTRO))
             fila.add_widget(Texto(EscalaNotas.formatear(nota), tamano=15, fuente=Tipografia.SEMI, color_texto=tinta,
-                                  alinear="right", size_hint_x=None, width=dp(36), pos_hint=CENTRO))
+                                    alinear="right", size_hint_x=None, width=dp(36), pos_hint=CENTRO))
             lista.add_widget(fila)
         c.add_widget(lista)
 
@@ -134,9 +134,9 @@ class PantallaApoderado(PantallaConPestanas):
             if indice:
                 refuerzos.add_widget(Separador())
             refuerzos.add_widget(FilaLista(refuerzo.tema.titulo, refuerzo.tema.nivel,
-                                           inicio=InsigniaIcono(refuerzo.tema.icono, tinta=self.ACENTO, lado=38),
-                                           fin=Etiqueta(refuerzo.nombre_estado, tinta=tinta, fondo=fondo),
-                                           al_presionar=lambda: self.cambiar_pestana("refuerzos")))
+                                            inicio=InsigniaIcono(refuerzo.tema.icono, tinta=self.ACENTO, lado=38),
+                                            fin=Etiqueta(refuerzo.nombre_estado, tinta=tinta, fondo=fondo),
+                                            al_presionar=lambda: self.cambiar_pestana("refuerzos")))
         c.add_widget(refuerzos)
 
     def _elegir_hijo(self, estudiante_id: int) -> None:
@@ -151,10 +151,10 @@ class PantallaApoderado(PantallaConPestanas):
         nombre = ficha.estudiante.primer_nombre
         activos = [r for r in ficha.refuerzos_activos if r.tema]
         c.add_widget(Texto(f"Temas que la docente desbloqueó para {nombre}, con ideas simples para acompañar "
-                           "desde la casa.", tamano=13.5, color_texto=Paleta.TINTA_SUAVE))
+                            "desde la casa.", tamano=13.5, color_texto=Paleta.TINTA_SUAVE))
         if not activos:
             c.add_widget(EstadoVacio("book-open", "Sin temas de refuerzo", f"Cuando la docente desbloquee un "
-                                     f"tema para {nombre}, aparecerá aquí.", tinta=self.ACENTO))
+                                        f"tema para {nombre}, aparecerá aquí.", tinta=self.ACENTO))
             return
         for refuerzo in activos:
             tema = refuerzo.tema
@@ -171,7 +171,7 @@ class PantallaApoderado(PantallaConPestanas):
             ultimo = next((i for i in ficha.intentos if i.tema_id == tema.id), None)
             if ultimo:
                 texto = (f"Último intento: {ultimo.correctas} de {ultimo.total} correctas ({ultimo.porcentaje} %), "
-                         f"{FormatoTexto.fecha_relativa(ultimo.realizado_en)}.")
+                            f"{FormatoTexto.fecha_relativa(ultimo.realizado_en)}.")
             else:
                 texto = "Aún no rinde la prueba de este tema."
             tarjeta.add_widget(Texto(texto, tamano=13.5, color_texto=Paleta.TINTA_SUAVE))
@@ -181,9 +181,9 @@ class PantallaApoderado(PantallaConPestanas):
             tarjeta.add_widget(CajaNota("Cómo apoyar en casa", tema.consejo_apoderado, icono="heart-handshake",
                                         tinta=self.ACENTO))
             tarjeta.add_widget(Boton("Ver la materia", icono="book-open", variante="contorno", acento=self.ACENTO,
-                                     alto=44, tamano=14,
-                                     al_presionar=lambda t=tema.id: self.app.abrir_leccion(
-                                         t, vista_previa=True, nota=f"Materia de {nombre}")))
+                                        alto=44, tamano=14,
+                                        al_presionar=lambda t=tema.id: self.app.abrir_leccion(
+                                            t, vista_previa=True, nota=f"Materia de {nombre}")))
             c.add_widget(tarjeta)
 
     # ------------------------------------------------------------------

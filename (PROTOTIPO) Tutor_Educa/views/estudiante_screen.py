@@ -16,8 +16,8 @@ from kivy.uix.image import Image as Imagen
 from models.modelos import EscalaNotas, EstadoRefuerzo
 from services.estadisticas import resumen
 from views.componentes import (BarraProgreso, CajaNota, Columna, EstadoVacio, Etiqueta, Fila, FilaLista, Icono,
-                           InsigniaIcono, Metrica, Separador, Superficie, TarjetaTocable, Texto,
-                           encabezado_seccion, insignia_nota)
+                            InsigniaIcono, Metrica, Separador, Superficie, TarjetaTocable, Texto,
+                            encabezado_seccion, insignia_nota)
 from views.estilo import FormatoTexto, Paleta, Tipografia, color
 from views.base_screen import PantallaConPestanas
 
@@ -46,7 +46,7 @@ class PantallaEstudiante(PantallaConPestanas):
     def _sin_datos(self, c) -> bool:
         if self.ficha is None:
             c.add_widget(EstadoVacio("cloud-off", "Aún no hay datos en este dispositivo",
-                                     "Ingresa una vez con conexión para descargar tu información."))
+                                        "Ingresa una vez con conexión para descargar tu información."))
             return True
         return False
 
@@ -57,15 +57,15 @@ class PantallaEstudiante(PantallaConPestanas):
         ficha = self.ficha
         if not self.app.en_linea:
             c.add_widget(CajaNota("Estás sin conexión", "Puedes leer la materia y rendir las pruebas. Tus "
-                                  "resultados se enviarán solos cuando vuelva la conexión.", icono="wifi-off",
-                                  tinta=Paleta.AMBAR))
-        activos = [r for r in ficha.refuerzos_activos if r.tema]
+                                    "resultados se enviarán solos cuando vuelva la conexión.", icono="wifi-off",
+                                    tinta=Paleta.AMBAR))
+        activos = [r for r in ficha.refuerzos_activos if r.tema]    # type: ignore
         logrados = sum(1 for r in activos if r.estado == EstadoRefuerzo.LOGRADO)
         resumen = Superficie()
         fila = Fila()
-        fila.add_widget(Metrica(EscalaNotas.formatear(ficha.promedio_general), "Promedio general",
-                                tinta=tinta_nota(ficha.promedio_general)))
-        fila.add_widget(Metrica(f"{ficha.asistencia} %", "Asistencia"))
+        fila.add_widget(Metrica(EscalaNotas.formatear(ficha.promedio_general), "Promedio general",  # type: ignore
+                                tinta=tinta_nota(ficha.promedio_general)))  # type: ignore
+        fila.add_widget(Metrica(f"{ficha.asistencia} %", "Asistencia")) # type: ignore
         fila.add_widget(Metrica(f"{logrados} de {len(activos)}", "Temas logrados", tinta=Paleta.VERDE))
         resumen.add_widget(fila)
         c.add_widget(resumen)
@@ -74,7 +74,7 @@ class PantallaEstudiante(PantallaConPestanas):
                                         "necesitas. Puedes estudiarlos incluso sin internet."))
         if not activos:
             c.add_widget(EstadoVacio("sparkles", "Aún no tienes temas desbloqueados",
-                                     "Cuando tu docente desbloquee un tema, aparecerá aquí."))
+                                        "Cuando tu docente desbloquee un tema, aparecerá aquí."))
         for refuerzo in activos:
             c.add_widget(self._tarjeta_refuerzo(refuerzo))
 
@@ -93,17 +93,17 @@ class PantallaEstudiante(PantallaConPestanas):
         if refuerzo.mensaje:
             tarjeta.add_widget(CajaNota("Mensaje de tu docente", refuerzo.mensaje, icono="message-circle",
                                         tinta=Paleta.AZUL, fondo=Paleta.PAPEL))
-        mejor = self.ficha.mejor_intento(tema.id)
+        mejor = self.ficha.mejor_intento(tema.id)   # type: ignore
         if mejor:
             tarjeta.add_widget(BarraProgreso(mejor.porcentaje / 100, alto=6,
-                                             color_barra=Paleta.VERDE if mejor.logrado else Paleta.AMBAR))
+                                                color_barra=Paleta.VERDE if mejor.logrado else Paleta.AMBAR))
             detalle = f"Mejor resultado: {mejor.porcentaje} % (nota {EscalaNotas.formatear(mejor.nota)})"
         else:
             detalle = "Aún no rindes la prueba de este tema"
         pie = Fila()
         pie.add_widget(Texto(detalle, tamano=13, color_texto=Paleta.TINTA_SUAVE, pos_hint=CENTRO))
         pie.add_widget(Texto("Estudiar", tamano=13.5, fuente=Tipografia.SEMI, color_texto=Paleta.AZUL,
-                             alinear="right", size_hint_x=None, width=dp(66), pos_hint=CENTRO))
+                                alinear="right", size_hint_x=None, width=dp(66), pos_hint=CENTRO))
         pie.add_widget(Icono("chevron-right", tamano=16, color_icono=Paleta.AZUL, pos_hint=CENTRO))
         tarjeta.add_widget(pie)
         return tarjeta
@@ -115,26 +115,26 @@ class PantallaEstudiante(PantallaConPestanas):
         ficha = self.ficha
         resumen = Superficie()
         fila = Fila()
-        fila.add_widget(Metrica(EscalaNotas.formatear(ficha.promedio_general), "Promedio general",
-                                tinta=tinta_nota(ficha.promedio_general)))
-        fila.add_widget(Metrica(f"{ficha.asistencia} %", "Asistencia"))
+        fila.add_widget(Metrica(EscalaNotas.formatear(ficha.promedio_general), "Promedio general",  # type: ignore
+                                tinta=tinta_nota(ficha.promedio_general)))  # type: ignore
+        fila.add_widget(Metrica(f"{ficha.asistencia} %", "Asistencia")) # type: ignore
         resumen.add_widget(fila)
         resumen.add_widget(Texto("Escala de 1,0 a 7,0. Se aprueba con 4,0.", tamano=12.5,
-                                 color_texto=Paleta.TINTA_TENUE))
+                                    color_texto=Paleta.TINTA_TENUE))
         c.add_widget(resumen)
         c.add_widget(encabezado_seccion("Por asignatura"))
         lista = Superficie(padding=(dp(16), dp(4)), spacing=0)
         for indice, asignatura in enumerate(self.app.datos.asignaturas()):
-            notas = ficha.notas_de(asignatura.id)
+            notas = ficha.notas_de(asignatura.id)   # type: ignore
             detalle = "   ".join(EscalaNotas.formatear(n) for n in notas) or "Sin notas todavía"
             if asignatura.tiene_tutor:
                 detalle += "\nCon tutor de refuerzo"
             if indice:
                 lista.add_widget(Separador())
             lista.add_widget(FilaLista(asignatura.nombre, detalle,
-                                       inicio=InsigniaIcono(asignatura.icono, tinta=asignatura.color,
+                                        inicio=InsigniaIcono(asignatura.icono, tinta=asignatura.color,
                                                             fondo=color(asignatura.color, 0.12), lado=40),
-                                       fin=insignia_nota(ficha.promedio(asignatura.id))))
+                                        fin=insignia_nota(ficha.promedio(asignatura.id))))  # type: ignore
         c.add_widget(lista)
 
     # ------------------------------------------------------------------
@@ -142,13 +142,13 @@ class PantallaEstudiante(PantallaConPestanas):
         if self._sin_datos(c):
             return
         ficha = self.ficha
-        activos = [r for r in ficha.refuerzos_activos if r.tema]
+        activos = [r for r in ficha.refuerzos_activos if r.tema]    # type: ignore
         logrados = sum(1 for r in activos if r.estado == EstadoRefuerzo.LOGRADO)
-        mejor_nota = max((i.nota for i in ficha.intentos), default=None)
+        mejor_nota = max((i.nota for i in ficha.intentos), default=None)    # type: ignore
         resumen = Superficie()
         fila = Fila()
         fila.add_widget(Metrica(f"{logrados} de {len(activos)}", "Temas logrados", tinta=Paleta.VERDE))
-        fila.add_widget(Metrica(str(len(ficha.intentos)), "Pruebas rendidas"))
+        fila.add_widget(Metrica(str(len(ficha.intentos)), "Pruebas rendidas"))  # type: ignore
         fila.add_widget(Metrica(EscalaNotas.formatear(mejor_nota), "Mejor nota", tinta=tinta_nota(mejor_nota)))
         resumen.add_widget(fila)
         c.add_widget(resumen)
@@ -157,7 +157,7 @@ class PantallaEstudiante(PantallaConPestanas):
             c.add_widget(encabezado_seccion("Avance por tema"))
             lista = Superficie(spacing=dp(14))
             for refuerzo in activos:
-                mejor = ficha.mejor_intento(refuerzo.tema_id)
+                mejor = ficha.mejor_intento(refuerzo.tema_id)   # type: ignore
                 bloque = Columna(spacing=dp(6))
                 cabecera = Fila()
                 cabecera.add_widget(Texto(refuerzo.tema.titulo, tamano=14.5, fuente=Tipografia.MEDIA, pos_hint=CENTRO))
@@ -173,32 +173,32 @@ class PantallaEstudiante(PantallaConPestanas):
             c.add_widget(lista)
 
         c.add_widget(encabezado_seccion("Historial de pruebas"))
-        if not ficha.intentos:
+        if not ficha.intentos:  # type: ignore
             c.add_widget(EstadoVacio("target", "Todavía no rindes pruebas",
-                                     "Cuando termines la prueba de un tema, tu resultado aparecerá aquí."))
+                                        "Cuando termines la prueba de un tema, tu resultado aparecerá aquí."))
             self._bitacora(c)
             return
         lista = Superficie(padding=(dp(16), dp(4)), spacing=0)
-        for indice, intento in enumerate(ficha.intentos):
-            tema = self.app.datos.tema(intento.tema_id)
+        for indice, intento in enumerate(ficha.intentos): # type: ignore
+            tema = self.app.datos.tema(intento.tema_id)  # type: ignore
             icono, tinta = ("circle-check", Paleta.VERDE) if intento.logrado else ("target", Paleta.AMBAR)
             if indice:
                 lista.add_widget(Separador())
             lista.add_widget(FilaLista(tema.titulo if tema else intento.tema_id,
-                                       f"{intento.correctas} de {intento.total} correctas, "
-                                       f"{FormatoTexto.fecha_relativa(intento.realizado_en)}",
-                                       inicio=InsigniaIcono(icono, tinta=tinta, lado=38, redonda=True),
-                                       fin=insignia_nota(intento.nota, lado=42)))
+                                        f"{intento.correctas} de {intento.total} correctas, "
+                                        f"{FormatoTexto.fecha_relativa(intento.realizado_en)}",
+                                        inicio=InsigniaIcono(icono, tinta=tinta, lado=38, redonda=True),
+                                        fin=insignia_nota(intento.nota, lado=42)))
         c.add_widget(lista)
         self._bitacora(c)
 
     def _bitacora(self, c) -> None:
         """Bitácora de práctica: las pruebas guardadas en el archivo JSON del dispositivo."""
-        registros = self.app.datos.bitacora(self.ficha.estudiante.id)
+        registros = self.app.datos.bitacora(self.ficha.estudiante.id) # type: ignore
         c.add_widget(encabezado_seccion("Bitácora de práctica"))
         if not registros:
             c.add_widget(EstadoVacio("clock", "Aún no hay registros guardados",
-                                     "Cada prueba que rindas se guarda en este dispositivo con su fecha y duración."))
+                                        "Cada prueba que rindas se guarda en este dispositivo con su fecha y duración."))
             return
         tarjeta = Superficie(spacing=dp(8))
         fila = Fila()
@@ -209,34 +209,34 @@ class PantallaEstudiante(PantallaConPestanas):
                                 "Tiempo promedio"))
         tarjeta.add_widget(fila)
         tarjeta.add_widget(Texto(f"Nota promedio {EscalaNotas.formatear(datos['nota_promedio'])} "
-                                 f"(variación {datos['nota_desviacion']:.1f}). Tendencia: {datos['tendencia']}.",
-                                 tamano=13.5, color_texto=Paleta.TINTA_SUAVE))
+                                    f"(variación {datos['nota_desviacion']:.1f}). Tendencia: {datos['tendencia']}.",
+                                    tamano=13.5, color_texto=Paleta.TINTA_SUAVE))
         c.add_widget(tarjeta)
-        ruta_grafico = self.app.datos.grafico_progreso(self.ficha.estudiante.id)   # gráfico con Matplotlib
+        ruta_grafico = self.app.datos.grafico_progreso(self.ficha.estudiante.id)   # gráfico con Matplotlib # type: ignore
         if ruta_grafico:
             c.add_widget(Imagen(source=str(ruta_grafico), nocache=True, size_hint_y=None, height=dp(300),
                                 fit_mode="contain"))
         elif self.app.datos.error_grafico:
             c.add_widget(CajaNota("Gráfico no disponible", self.app.datos.error_grafico, icono="circle-x",
-                                  tinta=Paleta.ROJO))
+                                    tinta=Paleta.ROJO))
         lista = Superficie(padding=(dp(16), dp(4)), spacing=0)
         for indice, registro in enumerate(registros[:8]):
             tema = self.app.datos.tema(registro.tema_id)
             if indice:
                 lista.add_widget(Separador())
             lista.add_widget(FilaLista(tema.titulo if tema else registro.tema_id,
-                                       f"{registro.fecha_legible} · {registro.correctas} de {registro.total} "
-                                       f"correctas · {registro.duracion_legible}",
-                                       inicio=InsigniaIcono("clock", tinta=Paleta.AZUL, lado=38, redonda=True),
-                                       fin=insignia_nota(registro.nota, lado=42)))
+                                        f"{registro.fecha_legible} · {registro.correctas} de {registro.total} "
+                                        f"correctas · {registro.duracion_legible}",
+                                        inicio=InsigniaIcono("clock", tinta=Paleta.AZUL, lado=38, redonda=True),
+                                        fin=insignia_nota(registro.nota, lado=42)))
         c.add_widget(lista)
 
     # ------------------------------------------------------------------
     def pestana_tutor(self, c) -> None:
         if not self.app.internet:
             c.add_widget(EstadoVacio("wifi-off", "El tutor IA necesita internet",
-                                     "Mientras tanto puedes leer la materia y practicar con la prueba de cada "
-                                     "tema: eso funciona sin conexión.", tinta=Paleta.AMBAR))
+                                        "Mientras tanto puedes leer la materia y practicar con la prueba de cada "
+                                        "tema: eso funciona sin conexión.", tinta=Paleta.AMBAR))
             return
         tarjeta = Superficie(spacing=dp(12))
         cabecera = Fila(spacing=dp(12))
@@ -255,12 +255,12 @@ class PantallaEstudiante(PantallaConPestanas):
         activos = [r for r in (self.ficha.refuerzos_activos if self.ficha else []) if r.tema]
         for refuerzo in activos:
             lista.add_widget(FilaLista(refuerzo.tema.titulo, refuerzo.tema.nivel,
-                                       inicio=InsigniaIcono(refuerzo.tema.icono, lado=38),
-                                       al_presionar=lambda t=refuerzo.tema_id: self.app.abrir_chat_estudiante(t)))
+                                        inicio=InsigniaIcono(refuerzo.tema.icono, lado=38),
+                                        al_presionar=lambda t=refuerzo.tema_id: self.app.abrir_chat_estudiante(t)))
             lista.add_widget(Separador())
         lista.add_widget(FilaLista("Otra duda de matemáticas", "Pregunta libre sobre cualquier tema",
-                                   inicio=InsigniaIcono("circle-help", tinta=Paleta.TINTA_SUAVE, lado=38),
-                                   al_presionar=lambda: self.app.abrir_chat_estudiante(None)))
+                                    inicio=InsigniaIcono("circle-help", tinta=Paleta.TINTA_SUAVE, lado=38),
+                                    al_presionar=lambda: self.app.abrir_chat_estudiante(None)))
         c.add_widget(lista)
 
     def _nota_modo_ia(self):

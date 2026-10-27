@@ -90,7 +90,7 @@ class Usuario:
         entra cada persona: la base de datos guarda el rol de cada correo.
         """
         clases = {Rol.ESTUDIANTE: Estudiante, Rol.DOCENTE: Docente, Rol.APODERADO: Apoderado}
-        clase = clases.get(fila.get("rol"))
+        clase = clases.get(fila.get("rol")) # type: ignore
         if clase is None:
             raise ValueError(f"Rol desconocido: {fila.get('rol')!r}")
         return clase(id=int(fila["id"]), correo=fila["correo"], nombre=fila["nombre"])
@@ -387,19 +387,19 @@ class Intento:
     def desde_dict(cls, datos: dict) -> "Intento":
         """Operación inversa de to_dict(): reconstruye el objeto leído con json.load()."""
         return cls(id=None, codigo=datos["codigo"], estudiante_id=int(datos["estudiante_id"]),
-                   tema_id=datos["tema_id"], correctas=int(datos["correctas"]), total=int(datos["total"]),
-                   porcentaje=int(datos["porcentaje"]), nota=float(datos["nota"]),
-                   realizado_en=datos["realizado_en"], origen=datos.get("origen", "app"),
-                   duracion_seg=float(datos.get("duracion_seg", 0.0)))
+                    tema_id=datos["tema_id"], correctas=int(datos["correctas"]), total=int(datos["total"]),
+                    porcentaje=int(datos["porcentaje"]), nota=float(datos["nota"]),
+                    realizado_en=datos["realizado_en"], origen=datos.get("origen", "app"),
+                    duracion_seg=float(datos.get("duracion_seg", 0.0)))
 
     @classmethod
     def nuevo(cls, estudiante_id: int, tema_id: str, correctas: int, total: int,
-              origen: str = "app", duracion_seg: float = 0.0) -> "Intento":
+                origen: str = "app", duracion_seg: float = 0.0) -> "Intento":
         porcentaje = round(100 * correctas / total) if total else 0
         return cls(id=None, codigo=uuid.uuid4().hex, estudiante_id=estudiante_id,
-                   tema_id=tema_id, correctas=correctas, total=total,
-                   porcentaje=porcentaje, nota=EscalaNotas.nota(correctas, total),
-                   realizado_en=ahora_iso(), origen=origen, duracion_seg=round(duracion_seg, 1))
+                    tema_id=tema_id, correctas=correctas, total=total,
+                    porcentaje=porcentaje, nota=EscalaNotas.nota(correctas, total),
+                    realizado_en=ahora_iso(), origen=origen, duracion_seg=round(duracion_seg, 1))
 
 
 @dataclass
@@ -421,10 +421,10 @@ class Aviso:
 
     @classmethod
     def nuevo(cls, curso_id: int, autor_id: int, titulo: str, cuerpo: str,
-              estudiante_id: Optional[int] = None, tipo: str = "info") -> "Aviso":
+                estudiante_id: Optional[int] = None, tipo: str = "info") -> "Aviso":
         return cls(id=None, codigo=uuid.uuid4().hex, curso_id=curso_id,
-                   estudiante_id=estudiante_id, autor_id=autor_id, titulo=titulo.strip(),
-                   cuerpo=cuerpo.strip(), tipo=tipo, creado_en=ahora_iso())
+                    estudiante_id=estudiante_id, autor_id=autor_id, titulo=titulo.strip(),
+                    cuerpo=cuerpo.strip(), tipo=tipo, creado_en=ahora_iso())
 
 
 @dataclass

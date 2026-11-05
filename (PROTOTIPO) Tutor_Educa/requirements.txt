@@ -1,1 +1,6 @@
+# Interfaz gráfica (PC y Android)
 Kivy>=2.3.0
+# Conexión a MySQL / MariaDB (XAMPP, phpMyAdmin). Si no está, la app usa el servidor de demostración.
+PyMySQL>=1.1
+# Certificados HTTPS para el chat con IA (necesario sobre todo en Android)
+certifi

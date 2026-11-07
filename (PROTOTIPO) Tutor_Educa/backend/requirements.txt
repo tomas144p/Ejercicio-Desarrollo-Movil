@@ -1,0 +1,8 @@
+# Dependencias del backend (el celular NO necesita nada de esto).
+fastapi>=0.110
+uvicorn[standard]>=0.29
+PyJWT>=2.8
+# Conexión a MySQL (obligatoria en producción)
+PyMySQL>=1.1
+# Para las pruebas (python -m unittest discover pruebas)
+httpx>=0.27

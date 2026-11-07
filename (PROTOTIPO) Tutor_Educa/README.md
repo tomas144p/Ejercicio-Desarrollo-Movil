@@ -56,30 +56,38 @@ El chat se activa cuando hay internet. Hay dos modos:
 - **Con clave de IA**: responde **Claude** (Anthropic). Crea `config.local.json` con `{"ia": {"api_key": "tu-clave"}}` o define la variable de entorno `ANTHROPIC_API_KEY`. El modelo se cambia en `config.json`.
 - **Sin clave (modo demostración)**: responde un tutor integrado que usa la materia de la base de datos. Reconoce pedidos como «explícame», «dame un ejemplo», «hazme una prueba» o «dame una pista», toma mini pruebas de 3 preguntas y da una segunda oportunidad con pista antes de revelar la respuesta.
 
-Las instrucciones que convierten a la IA en docente están en `tutor_educa/servicios/ia/instrucciones.py`: primero explicar la duda, luego un ejemplo resuelto paso a paso y después una pequeña prueba, una pregunta a la vez. También se le entrega la materia oficial del tema para que no enseñe de otra forma.
+Las instrucciones que convierten a la IA en docente están en `services/ia/instrucciones.py`: primero explicar la duda, luego un ejemplo resuelto paso a paso y después una pequeña prueba, una pregunta a la vez. También se le entrega la materia oficial del tema para que no enseñe de otra forma.
 
 Si la IA falla (clave incorrecta, sin saldo, sin internet), la conversación no se corta: responde el tutor integrado y aparece una nota con el motivo. También se puede usar otro proveedor compatible con la API de OpenAI (por ejemplo **Ollama** en el mismo PC) con `"proveedor": "openai_compatible"` y `"url_base": "http://localhost:11434/v1"`.
 
 ## Estructura del proyecto (POO por capas)
 
 ```
-main.py                         Arma la app: servicios, pantallas y navegación
+main.py                         Solo la clase TutorEducaApp (MDApp): orquesta e inicia la app
 config.json                     Configuración compartida (sin claves)
-tutor_educa/
-  configuracion.py              Lee config.json + config.local.json + variables de entorno
-  seguridad.py                  Cifrado de contraseñas (PBKDF2-SHA256)
-  modelos.py                    Usuario -> Estudiante/Docente/Apoderado, Tema, Pregunta, Intento...
+views/                          LA VISTA: solo KivyMD/Kivy, muestra datos y captura eventos
+  componentes.py                Boton (MDButton + MDButtonText), CampoTexto (MDTextField + MDTextFieldHintText)...
+  estilo.py, dialogos.py        Colores, tipografía, diálogos y avisos
+  navegacion.py, raiz.py        Barras de navegación y contenedor raíz
+  ventana.py                    Tamaño de la ventana (se llama antes de abrir Kivy)
+  base_screen.py                PantallaBase (MDScreen) y pantallas con pestañas
+  ingreso_screen.py ...         Una pantalla por archivo (ingreso, estudiante, leccion, chat, docente, ficha, apoderado)
+services/                       LA LÓGICA: Python puro, sin importar Kivy
+  validaciones.py               Valida correo, clave, avisos y respuestas (lanza ValueError)
+  ordenamiento.py               Orden de la lista de estudiantes (menor a mayor, mayor a menor, A–Z)
+  almacen_json.py               Guarda y lee los intentos en datos_locales/intentos.json (with open + utf-8)
+  cronometro.py                 Mide la duración de cada prueba con time.perf_counter()
+  estadisticas.py               Promedios y tendencia de las notas con NumPy
+  graficos.py                   Gráfico de progreso con Matplotlib (guarda un PNG)
   evaluacion.py                 Corrector flexible de respuestas y lógica de la prueba
-  contenido/matematicas.py      La materia de los 7 temas (se edita aquí)
-  contenido/datos_iniciales.py  Curso, notas y cuentas de demostración
-  datos/esquema.py              Las tablas, definidas una vez para SQLite y MySQL
-  datos/conexiones.py           ConexionSQLite y ConexionMySQL (misma interfaz)
-  datos/repositorio.py          Consultas compartidas
-  datos/servidor.py             Servidor (MySQL o demostración) y qué datos baja cada rol
-  datos/local.py                Base interna: copia local, credenciales recordadas, cola
-  servicios/                    Ingreso, sincronización, monitor de conexión, tareas en 2º plano
-  servicios/ia/                 Proveedores de IA, instrucciones, tutor integrado, conversación
-  interfaz/                     Estilo, componentes, diálogos, navegación y pantallas
+  autenticacion.py, sincronizacion.py, conexion.py, datos_app.py, tareas.py
+  configuracion.py, seguridad.py
+  ia/                           Proveedores de IA, instrucciones, tutor integrado, conversación
+models/                         LOS DATOS: estructuras y base de datos
+  modelos.py                    Usuario -> Estudiante/Docente/Apoderado, Tema, Pregunta, Intento...
+  contenido/                    La materia de los 7 temas y los datos de demostración
+  datos/                        Tablas, conexiones SQLite/MySQL, repositorio, servidor y base local
+controladores/                  Partes de la app (construcción, conexión, sesión, navegación)
 database/tutor_educa_mysql.sql  Para importar en phpMyAdmin
 herramientas/                   Generar el .sql, crear usuarios, capturar pantallas
 pruebas/test_nucleo.py          Pruebas automáticas
@@ -108,3 +116,41 @@ Las pruebas revisan, entre otras cosas, que cada respuesta guardada en la materi
 ## Nota sobre seguridad
 
 En este prototipo la app se conecta **directamente** a MySQL, lo que sirve para trabajar con phpMyAdmin en clases. En una versión real, el teléfono debería hablar con una **API intermedia** (por ejemplo en PHP o Python), que es la única con acceso a la base y que valida los permisos de cada rol. Por la misma razón, la clave de la IA debería vivir en ese servidor y no en el teléfono. Ver `PENDIENTES.md`.
+
+## Persistencia local en JSON (bitácora de práctica)
+
+Cada prueba que rinde un estudiante es un objeto `Intento` (`models/modelos.py`) con fecha automática y duración.
+Se guarda con `to_dict()` en `datos_locales/intentos.json` y se lee de vuelta al reiniciar la app
+(pestaña *Progreso* > *Bitácora de práctica*). El archivo se crea la primera vez que se rinde una prueba.
+
+Con los intentos guardados, `services/estadisticas.py` (NumPy) calcula nota promedio, variación y tendencia, y
+`services/graficos.py` (Matplotlib, motor Agg) dibuja el gráfico que se muestra en la bitácora. Instalar con
+`pip install -r requirements.txt` (incluye numpy y matplotlib).
+
+### Ver las librerías funcionando
+
+- En la app: entra como estudiante > pestaña *Progreso* > *Bitácora de práctica* (estadísticas con NumPy y gráfico con Matplotlib).
+  La primera vez, la bitácora copia al JSON las pruebas que ya había en la base de datos; cada prueba nueva agrega su registro con fecha y duración.
+- Por consola: `python herramientas/demo_librerias.py` guarda un JSON de prueba, imprime las estadísticas, genera
+  `datos_locales/grafico_demo.png` y compara un ciclo de Python con NumPy usando `time.perf_counter()`.
+
+## Notas con color, tendencia y confirmación «Recibido»
+
+- **Escala de colores** (`EscalaNotas.categoria`): hasta 3,9 rojo · 4,0 a 4,9 naranjo · 5,0 a 5,9 neutro · 6,0 a 6,9 azul · 7,0 verde.
+  Se redondea antes de colorear, para que el color coincida con el número que se ve (3,96 se muestra como 4,0).
+- **Mensajes amables** para apoderados (`EscalaNotas.mensaje`): «Necesita apoyo», «¡Muy bien!», «¡Perfecto!»…
+- **Flecha de tendencia** (`FichaEstudiante.tendencia`): compara la última nota con el promedio de las anteriores (sube, baja o estable).
+- **Orden de estudiantes** en la pantalla del docente: de la nota más baja a la más alta (por defecto), al revés o A–Z.
+- **Avisos con «Recibido»** (pulgar arriba): abrir un aviso no lo da por recibido; la familia lo confirma con el botón.
+  Sin conexión la confirmación queda en la cola y se envía al volver internet. El docente ve «Recibido por X de Y apoderados».
+
+## Backend (API) y modo real
+
+La versión real **no** conecta el celular directo a la base de datos: la app le habla a una API (`backend/`) por
+HTTPS, y es la API la que usa MySQL y la IA. Así la app ya no lleva claves de base de datos ni de la IA.
+
+- Activarlo en la app: `config.local.json` → `{"servidor": {"motor": "http", "url": "https://..."}}`.
+- Probarlo en el PC: `pip install -r backend/requirements.txt` y `python -m backend` (guía completa en `backend/README.md`).
+- Los modos `auto`, `mysql` y `demo` siguen existiendo para desarrollo, pero **no deben usarse en una versión
+  que se entregue a un colegio**.
+- Pruebas: `python -m unittest discover pruebas` (las del backend se omiten solas si FastAPI no está instalado).

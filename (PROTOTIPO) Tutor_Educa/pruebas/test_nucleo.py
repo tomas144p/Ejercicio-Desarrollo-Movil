@@ -11,6 +11,7 @@ se prueba el camino MySQL en una base temporal "tutor_educa_pruebas".
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 import tempfile
@@ -19,20 +20,27 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tutor_educa.configuracion import ConfigServidor, Configuracion  # noqa: E402
-from tutor_educa.contenido.datos_iniciales import DatosIniciales  # noqa: E402
-from tutor_educa.datos.conexiones import ConexionMySQL, ErrorConexion  # noqa: E402
-from tutor_educa.datos.esquema import crear_esquema  # noqa: E402
-from tutor_educa.datos.local import BaseDatosLocal  # noqa: E402
-from tutor_educa.datos.servidor import GestorServidor, ServidorRemoto  # noqa: E402
-from tutor_educa.evaluacion import CorrectorRespuestas, SesionPrueba  # noqa: E402
-from tutor_educa.modelos import (Aviso, EscalaNotas, EstadoRefuerzo, Intento, Pregunta,  # noqa: E402
+from services.configuracion import ConfigServidor, Configuracion  # noqa: E402
+from models.contenido.datos_iniciales import DatosIniciales  # noqa: E402
+from models.datos.conexiones import ConexionMySQL, ErrorConexion  # noqa: E402
+from models.datos.esquema import crear_esquema  # noqa: E402
+from models.datos.local import BaseDatosLocal  # noqa: E402
+from models.datos.servidor import GestorServidor, ServidorRemoto  # noqa: E402
+from services.evaluacion import CorrectorRespuestas, SesionPrueba  # noqa: E402
+from services.almacen_json import AlmacenIntentos  # noqa: E402
+from services.cronometro import Cronometro  # noqa: E402
+from services.estadisticas import resumen, tendencia  # noqa: E402
+from services.graficos import grafico_progreso  # noqa: E402
+from services.ordenamiento import ordenar_fichas  # noqa: E402
+from services.validaciones import (validar_aviso, validar_clave, validar_correo,  # noqa: E402
+                                   validar_respuesta)
+from models.modelos import (Aviso, EscalaNotas, EstadoRefuerzo, Intento, Pregunta,  # noqa: E402
                                  Usuario)
-from tutor_educa.seguridad import GestorClaves  # noqa: E402
-from tutor_educa.servicios.autenticacion import ServicioAutenticacion  # noqa: E402
-from tutor_educa.servicios.datos_app import ServicioDatos  # noqa: E402
-from tutor_educa.servicios.ia.conversacion import ContextoConversacion, ServicioTutorIA  # noqa: E402
-from tutor_educa.servicios.sincronizacion import ServicioSincronizacion  # noqa: E402
+from services.seguridad import GestorClaves  # noqa: E402
+from services.autenticacion import ServicioAutenticacion  # noqa: E402
+from services.datos_app import ServicioDatos  # noqa: E402
+from services.ia.conversacion import ContextoConversacion, ServicioTutorIA  # noqa: E402
+from services.sincronizacion import ServicioSincronizacion  # noqa: E402
 
 CLAVE = DatosIniciales.CLAVE_DEMO
 
@@ -76,6 +84,48 @@ class PruebasBasicas(unittest.TestCase):
         self.assertEqual(EscalaNotas.nota(4, 5), 5.5)
         self.assertEqual(EscalaNotas.nota(0, 5), 1.0)
         self.assertEqual(EscalaNotas.formatear(5.25), "5,3")
+
+    def test_colores_de_notas(self):
+        """Rojo hasta 3,9 · naranjo 4,0-4,9 · neutro 5,0-5,9 · azul 6,0-6,9 · verde 7,0."""
+        esperadas = {1.0: "insuficiente", 3.9: "insuficiente", 4.0: "en_riesgo", 4.9: "en_riesgo",
+                     5.0: "adecuado", 5.9: "adecuado", 6.0: "destacado", 6.9: "destacado", 7.0: "perfecto",
+                     3.96: "en_riesgo"}   # 3,96 se ve como "4,0": el color debe coincidir con el número visible
+        for nota, categoria in esperadas.items():
+            self.assertEqual(EscalaNotas.categoria(nota), categoria, nota)
+        self.assertEqual(EscalaNotas.categoria(None), "sin_nota")
+
+    def test_mensajes_amables_para_cada_categoria(self):
+        self.assertEqual(EscalaNotas.mensaje(7.0), "¡Perfecto!")
+        self.assertEqual(EscalaNotas.mensaje(None), "Sin notas todavía")
+        for nota in (1.0, 4.5, 5.5, 6.5, 7.0, None):
+            self.assertTrue(EscalaNotas.mensaje(nota))
+
+    def test_tendencia(self):
+        from models.modelos import Calificacion, Estudiante, FichaEstudiante
+
+        def ficha(notas):
+            return FichaEstudiante(estudiante=Estudiante(id=1, correo="a@a.cl", nombre="A B"),
+                                   calificaciones=[Calificacion(i, 1, "mat", n, fecha=f"2026-0{i}-01")
+                                                   for i, n in enumerate(notas, start=1)])
+        self.assertIsNone(ficha([5.0]).tendencia("mat"))
+        self.assertEqual(ficha([4.0, 4.5, 5.5]).tendencia("mat"), "sube")
+        self.assertEqual(ficha([6.0, 5.5, 4.5]).tendencia("mat"), "baja")
+        self.assertEqual(ficha([5.0, 5.1, 5.0]).tendencia("mat"), "estable")
+
+    def test_orden_de_estudiantes(self):
+        class Ficha:   # lo mínimo que usa ordenar_fichas
+            def __init__(self, nombre, nota):
+                self.estudiante, self.nota = type("E", (), {"nombre": nombre})(), nota
+
+            def promedio(self, _asignatura):
+                return self.nota
+        fichas = [Ficha("Carla", 6.0), Ficha("Ana", None), Ficha("Beto", 4.0), Ficha("Dani", 4.0)]
+        nombres = lambda orden: [f.estudiante.nombre for f in ordenar_fichas(fichas, orden)]
+        self.assertEqual(nombres("menor"), ["Beto", "Dani", "Carla", "Ana"])   # sin nota, siempre al final
+        self.assertEqual(nombres("mayor"), ["Carla", "Beto", "Dani", "Ana"])
+        self.assertEqual(nombres("nombre"), ["Ana", "Beto", "Carla", "Dani"])
+        with self.assertRaises(ValueError):
+            ordenar_fichas(fichas, "otro")
 
     def test_contenido_coherente(self):
         """Cada respuesta guardada debe ser aceptada por el corrector (evita errores en la materia)."""
@@ -207,7 +257,7 @@ class PruebasConServidor(unittest.TestCase):
     def test_tutor_local(self):
         sofia = self.auth.ingresar(self.correo("sofia.morales"), CLAVE).usuario
         self.datos.iniciar_sesion(sofia)
-        from tutor_educa.configuracion import ConfigIA
+        from services.configuracion import ConfigIA
         servicio = ServicioTutorIA(ConfigIA(api_key=""), self.datos)
         self.assertFalse(servicio.usa_ia_real)
         contexto = ContextoConversacion("estudiante", sofia, tema=self.datos.tema("mat-ecuaciones"),
@@ -269,6 +319,118 @@ class PruebasMySQL(unittest.TestCase):
         datos.registrar_intento(Intento.nuevo(resultado.usuario.id, "mat-ecuaciones", 4, 5))
         self.assertEqual(sinc.sincronizar(resultado.usuario).enviados, 2)
         self.assertEqual(self.conexion.valor("SELECT COUNT(*) FROM intentos WHERE estudiante_id = 2"), 3)
+
+
+class PruebasPersistenciaJSON(unittest.TestCase):
+    """Intento.to_dict(), almacén JSON, fechas automáticas y cronómetro."""
+
+    def setUp(self):
+        self.carpeta = tempfile.TemporaryDirectory()
+        self.addCleanup(self.carpeta.cleanup)
+        self.ruta = Path(self.carpeta.name) / "intentos.json"
+
+    def test_to_dict_y_desde_dict(self):
+        intento = Intento.nuevo(7, "mat-ecuaciones", 4, 5, duracion_seg=72.4)
+        datos = intento.to_dict()
+        self.assertEqual(datos["correctas"], 4)
+        self.assertEqual(datos["duracion_seg"], 72.4)
+        copia = Intento.desde_dict(datos)
+        self.assertEqual(copia.to_dict(), datos)
+
+    def test_fecha_automatica_y_legible(self):
+        intento = Intento.nuevo(1, "t", 3, 5)
+        self.assertRegex(intento.realizado_en, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+        self.assertRegex(intento.fecha_legible, r"^\d{2}/\d{2}/\d{4} \d{2}:\d{2}$")
+        intento.duracion_seg = 72
+        self.assertEqual(intento.duracion_legible, "1 min 12 s")
+
+    def test_guardar_y_recuperar(self):
+        almacen = AlmacenIntentos(self.ruta)
+        self.assertEqual(almacen.cargar(), [])          # sin archivo: lista vacía
+        almacen.agregar(Intento.nuevo(1, "a", 5, 5, duracion_seg=30))
+        almacen.agregar(Intento.nuevo(2, "b", 2, 5, duracion_seg=50))
+        reabierto = AlmacenIntentos(self.ruta)          # como si se reiniciara la app
+        self.assertEqual(len(reabierto.cargar()), 2)
+        self.assertEqual(len(reabierto.de_estudiante(1)), 1)
+        self.assertEqual(resumen(reabierto.cargar())["duracion_promedio"], 40)
+        with open(self.ruta, "r", encoding="utf-8") as archivo:
+            self.assertEqual(len(json.load(archivo)), 2)
+
+    def test_agregar_varios_sin_repetir(self):
+        almacen = AlmacenIntentos(self.ruta)
+        uno = Intento.nuevo(1, "a", 5, 5)
+        self.assertEqual(almacen.agregar_varios([uno]), 1)
+        self.assertEqual(almacen.agregar_varios([uno, Intento.nuevo(1, "b", 2, 5)]), 1)   # «uno» ya estaba
+        self.assertEqual(len(almacen.cargar()), 2)
+
+    def test_archivo_dañado(self):
+        self.ruta.write_text("{ esto no es json", encoding="utf-8")
+        self.assertEqual(AlmacenIntentos(self.ruta).cargar(), [])
+
+    def test_estadisticas_numpy(self):
+        self.assertEqual(resumen([])["cantidad"], 0)
+        self.assertEqual(tendencia([3.0, 4.0, 5.5, 6.0]), "mejorando")
+        self.assertEqual(tendencia([6.0, 5.0, 3.5]), "bajando")
+        self.assertEqual(tendencia([5.0, 5.0, 5.0]), "estable")
+        intentos = [Intento.nuevo(1, "a", 5, 5), Intento.nuevo(1, "a", 3, 5)]
+        datos = resumen(intentos)
+        self.assertEqual(datos["cantidad"], 2)
+        self.assertAlmostEqual(datos["nota_promedio"], (intentos[0].nota + intentos[1].nota) / 2)
+
+    def test_grafico_matplotlib(self):
+        intentos = [Intento.nuevo(1, "a", 3, 5, duracion_seg=40), Intento.nuevo(1, "a", 5, 5, duracion_seg=60)]
+        png = Path(self.carpeta.name) / "grafico.png"
+        self.assertFalse(grafico_progreso([], png))                # sin datos no hay gráfico
+        self.assertTrue(grafico_progreso(intentos[:1], png))       # con un solo dato ya se dibuja
+        self.assertTrue(grafico_progreso(intentos, png))
+        self.assertGreater(png.stat().st_size, 1000)
+
+    def test_cronometro(self):
+        reloj = Cronometro()
+        self.assertEqual(reloj.detener(), 0.0)
+        reloj.iniciar()
+        self.assertGreaterEqual(reloj.detener(), 0.0)
+
+
+class PruebasValidaciones(unittest.TestCase):
+    """Las validaciones de services/ son funciones puras: se prueban sin abrir la app."""
+
+    def test_correo(self):
+        self.assertEqual(validar_correo("  ana@tutoreduca.cl "), "ana@tutoreduca.cl")
+        for malo in ("", "ana", "ana@", "ana@tutoreduca"):
+            with self.assertRaises(ValueError):
+                validar_correo(malo)
+
+    def test_clave_aviso_y_respuesta(self):
+        with self.assertRaises(ValueError):
+            validar_clave("")
+        with self.assertRaises(ValueError):
+            validar_aviso("ab", "mensaje largo")
+        with self.assertRaises(ValueError):
+            validar_aviso("Título", "hola")
+        self.assertEqual(validar_aviso(" Título ", " mensaje "), ("Título", "mensaje"))
+        with self.assertRaises(ValueError):
+            validar_respuesta("   ")
+        self.assertEqual(validar_respuesta(" 11 "), "11")
+
+
+class PruebasArquitectura(unittest.TestCase):
+    """Comprueba la separación en capas pedida en el taller de Arquitectura Modular."""
+
+    RAIZ = Path(__file__).resolve().parent.parent
+
+    def test_services_y_models_no_usan_kivy(self):
+        for carpeta in ("services", "models"):
+            for archivo in (self.RAIZ / carpeta).rglob("*.py"):
+                self.assertNotIn("kivy", archivo.read_text(encoding="utf-8"), f"{archivo} importa Kivy")
+
+    def test_cada_carpeta_es_un_paquete(self):
+        for carpeta in ("views", "services", "models"):
+            self.assertTrue((self.RAIZ / carpeta / "__init__.py").exists(), carpeta)
+
+    def test_main_es_corto(self):
+        lineas = (self.RAIZ / "main.py").read_text(encoding="utf-8").splitlines()
+        self.assertLess(len(lineas), 25)
 
 
 if __name__ == "__main__":

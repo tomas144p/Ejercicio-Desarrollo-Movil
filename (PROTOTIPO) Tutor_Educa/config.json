@@ -6,7 +6,9 @@
     "usuario": "root",
     "clave": "",
     "base_datos": "tutor_educa",
-    "tiempo_espera": 3
+    "tiempo_espera": 3,
+    "url": "",
+    "tiempo_http": 10
   },
   "ia": {
     "proveedor": "anthropic",

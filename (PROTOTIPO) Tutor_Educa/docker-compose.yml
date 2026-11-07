@@ -1,0 +1,60 @@
+# Despliegue completo: HTTPS (Caddy) -> API -> MySQL.  Uso:
+#   1) cp backend/.env.ejemplo .env   y completa los valores
+#   2) python herramientas/generar_sql_mysql.py --produccion
+#   3) docker compose up -d --build
+#   4) docker compose exec api python -m backend.crear_usuario docente correo@colegio.cl "Nombre" --curso "7° Básico B"
+#
+# Solo Caddy (80/443) está abierto a internet. La API y la base de datos quedan en una red privada.
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      TUTOR_DOMINIO: ${TUTOR_DOMINIO:?Falta TUTOR_DOMINIO en .env}
+    volumes:
+      - ./backend/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_datos:/data
+    depends_on: [api]
+
+  api:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    restart: unless-stopped
+    expose: ["8000"]
+    environment:
+      TUTOR_ENTORNO: produccion
+      TUTOR_JWT_SECRETO: ${TUTOR_JWT_SECRETO:?Falta TUTOR_JWT_SECRETO en .env}
+      TUTOR_DB_MOTOR: mysql
+      TUTOR_DB_HOST: db
+      TUTOR_DB_USUARIO: tutor_api
+      TUTOR_DB_CLAVE: ${TUTOR_DB_CLAVE:?Falta TUTOR_DB_CLAVE en .env}
+      TUTOR_DB_NOMBRE: tutor_educa
+      TUTOR_IA_API_KEY: ${TUTOR_IA_API_KEY:-}
+      TUTOR_IA_CUOTA_DIARIA: ${TUTOR_IA_CUOTA_DIARIA:-40}
+      TUTOR_IA_POR_MINUTO: ${TUTOR_IA_POR_MINUTO:-6}
+    depends_on:
+      db: { condition: service_healthy }
+
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    expose: ["3306"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Falta MYSQL_ROOT_PASSWORD en .env}
+      MYSQL_DATABASE: tutor_educa
+      MYSQL_USER: tutor_api
+      MYSQL_PASSWORD: ${TUTOR_DB_CLAVE:?Falta TUTOR_DB_CLAVE en .env}
+    volumes:
+      - mysql_datos:/var/lib/mysql
+      # Solo se ejecuta la primera vez (con la base vacía): crea las tablas y carga la materia, sin cuentas.
+      - ./database/tutor_educa_produccion.sql:/docker-entrypoint-initdb.d/01-tutor_educa.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  caddy_datos:
+  mysql_datos:

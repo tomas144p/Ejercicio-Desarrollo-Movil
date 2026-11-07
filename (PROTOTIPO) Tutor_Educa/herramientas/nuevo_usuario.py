@@ -14,8 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tutor_educa.modelos import Rol, ahora_iso  # noqa: E402
-from tutor_educa.seguridad import GestorClaves  # noqa: E402
+from models.modelos import Rol, ahora_iso  # noqa: E402
+from services.seguridad import GestorClaves  # noqa: E402
 
 if __name__ == "__main__":
     if len(sys.argv) != 5 or sys.argv[3] not in Rol.TODOS:
@@ -25,7 +25,7 @@ if __name__ == "__main__":
     huella = GestorClaves.generar_hash(clave)
     nombre_sql = nombre.replace("'", "''")
     print(f"INSERT INTO usuarios (correo, nombre, rol, clave_hash, activo, creado_en) VALUES "
-          f"('{correo.lower()}', '{nombre_sql}', '{rol}', '{huella}', 1, '{ahora_iso()}');")
+            f"('{correo.lower()}', '{nombre_sql}', '{rol}', '{huella}', 1, '{ahora_iso()}');")
     if rol == Rol.ESTUDIANTE:
         print("-- Luego, para asignarlo a un curso (cambia curso_id y apoderado_id):")
         print(f"INSERT INTO estudiantes (usuario_id, curso_id, apoderado_id, asistencia) "

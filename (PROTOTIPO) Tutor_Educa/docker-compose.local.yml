@@ -1,0 +1,17 @@
+# Para probar en TU PC con Docker Desktop (sin dominio ni certificado público).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+#
+# Qué cambia respecto al despliegue real:
+#   - Caddy (el HTTPS público) NO se levanta: no hay dominio ni certificado en tu PC.
+#   - La API queda disponible SOLO en tu computador: http://127.0.0.1:8000
+# La base de datos sigue sin abrirse hacia afuera, igual que en producción.
+
+services:
+  caddy:
+    profiles: ["publico"]
+  api:
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      TUTOR_CONFIAR_PROXY: "0"

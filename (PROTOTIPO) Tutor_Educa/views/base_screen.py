@@ -99,6 +99,11 @@ class PantallaConPestanas(PantallaBase):
     def titulo(self) -> str:
         return ""
 
+    def con_colegio(self, texto: str) -> str:
+        """Agrega el colegio al subtítulo («7° Básico B · Colegio San Andrés») para que cada persona confirme el suyo."""
+        colegio = self.app.datos.colegio_nombre()
+        return f"{texto} · {colegio}" if colegio else texto
+
     def subtitulo(self) -> str:
         return ""
 

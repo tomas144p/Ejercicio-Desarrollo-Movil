@@ -127,6 +127,8 @@ class PruebasClienteHTTP(unittest.TestCase):
         self.datos.iniciar_sesion(resultado.usuario)
         hijos = self.datos.hijos()
         self.assertEqual([h.estudiante.nombre for h in hijos], ["Sofía Morales"])
+        self.assertEqual([c["nombre"] for c in self.local.colegios()], ["Colegio Demo"])    # el colegio llegó al teléfono
+        self.assertEqual(resultado.usuario.colegio_id, 1)
         # lo que quedó en el teléfono no incluye la huella de ninguna contraseña ajena
         huellas = self.local.bd.consultar("SELECT * FROM usuarios")
         self.assertTrue(all("clave_hash" not in f or not f["clave_hash"] for f in huellas))

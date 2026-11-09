@@ -25,7 +25,9 @@ except ImportError:   # la app del celular no necesita FastAPI: estas pruebas se
 if HAY_API:
     from backend.ajustes import Ajustes, AjustesInvalidos
     from backend.app import crear_app
+    from backend.crear_colegio import ErrorColegio, cambiar_estado, crear_colegio
     from backend.crear_usuario import ErrorAlta, crear_usuario
+    from services.seguridad import GestorClaves
     from herramientas.generar_sql_mysql import generar
     from backend.crear_usuario import crear_usuario
     from backend.permisos import ErrorDatos, ErrorPermiso, validar_cambio
@@ -94,6 +96,39 @@ class BaseApi(unittest.TestCase):
 
     def id_de(self, usuario: str) -> int:
         return int(self.repo.usuario_por_correo(correo(usuario))["id"])
+
+    # --- Personas, cursos y colegios para armar escenarios (todas con la contraseña de demostración) ---
+    def persona(self, usuario: str, rol: str, colegio_id) -> int:
+        bd = self.repo.bd
+        nuevo = int(bd.valor("SELECT MAX(id) FROM usuarios", defecto=0)) + 1
+        bd.insertar("usuarios", {"id": nuevo, "correo": correo(usuario), "nombre": usuario.replace(".", " ").title(),
+                                 "rol": rol, "clave_hash": GestorClaves.generar_hash(CLAVE), "activo": 1,
+                                 "creado_en": ahora(), "colegio_id": colegio_id})
+        return nuevo
+
+    def curso(self, docente_id: int, colegio_id: int, nombre: str = "5° Básico A") -> int:
+        return int(self.repo.bd.insertar("cursos", {"nombre": nombre, "nivel": "5° Básico", "docente_id": docente_id,
+                                                    "anio": 2026, "colegio_id": colegio_id}))
+
+    def matricular(self, estudiante_id: int, curso_id: int, apoderado_id=None) -> None:
+        self.repo.bd.insertar("estudiantes", {"usuario_id": estudiante_id, "curso_id": curso_id,
+                                              "apoderado_id": apoderado_id, "asistencia": 100})
+
+    def colegio_b(self) -> dict:
+        """Un segundo colegio completo: docente, curso, apoderado y estudiante (con una nota y un aviso)."""
+        colegio = crear_colegio(self.repo, "Escuela Rural B")
+        docente = self.persona("docente.b", "docente", colegio)
+        curso = self.curso(docente, colegio)
+        apoderado = self.persona("apoderado.b", "apoderado", colegio)
+        estudiante = self.persona("estudiante.b", "estudiante", colegio)
+        self.matricular(estudiante, curso, apoderado)
+        self.repo.bd.insertar("calificaciones", {"id": 9001, "estudiante_id": estudiante, "asignatura_id": "mat",
+                                                 "nota": 6.5, "descripcion": "Evaluación B", "fecha": "2026-05-01"})
+        self.repo.bd.insertar("avisos", {"id": 9001, "codigo": "aviso-colegio-b-1", "curso_id": curso,
+                                         "estudiante_id": None, "autor_id": docente, "titulo": "Aviso de B",
+                                         "cuerpo": "Solo para el colegio B", "tipo": "info", "creado_en": ahora()})
+        return {"colegio": colegio, "docente": docente, "curso": curso, "apoderado": apoderado,
+                "estudiante": estudiante}
 
 
 class PruebasIngreso(BaseApi):
@@ -250,14 +285,9 @@ class PruebasCambios(BaseApi):
         self.assertEqual(sofia, self.id_de("sofia.morales"))
 
     def _segunda_docente(self):
-        """Crea otra docente con su propio curso (para probar que no puede tocar el curso de Carolina)."""
-        from services.seguridad import GestorClaves
-        bd = self.repo.bd
-        nuevo_id = int(bd.valor("SELECT MAX(id) FROM usuarios", defecto=0)) + 1
-        bd.insertar("usuarios", {"id": nuevo_id, "correo": correo("otra.docente"), "nombre": "Otra Docente",
-                                 "rol": "docente", "clave_hash": GestorClaves.generar_hash(CLAVE), "activo": 1,
-                                 "creado_en": ahora()})
-        bd.insertar("cursos", {"nombre": "8° Básico A", "nivel": "8° Básico", "docente_id": nuevo_id, "anio": 2026})
+        """Otra docente del MISMO colegio con su propio curso (no puede tocar el curso de Carolina)."""
+        docente = self.persona("otra.docente", "docente", 1)
+        self.curso(docente, 1, "8° Básico A")
         self._sesiones.pop("otra.docente", None)
 
 
@@ -338,10 +368,11 @@ class PruebasAltaDeCuentas(BaseApi):
 
     def test_docente_con_curso_y_luego_estudiante_con_apoderado_pueden_ingresar(self):
         docente = crear_usuario(self.repo, "nueva.docente@colegio.cl", "Nueva Docente", "docente", self.CLAVE_NUEVA,
-                                curso_nuevo=("5° Básico A", "5° Básico"))
+                                curso_nuevo=("5° Básico A", "5° Básico"), colegio_id=1)
         curso = self.repo.cursos_de_docente(docente)[0]
+        self.assertEqual(curso.colegio_id, 1)
         apoderado = crear_usuario(self.repo, "apoderado.nuevo@correo.cl", "Apoderado Nuevo", "apoderado",
-                                  self.CLAVE_NUEVA)
+                                  self.CLAVE_NUEVA, colegio_id=1)
         estudiante = crear_usuario(self.repo, "estudiante.nuevo@correo.cl", "Estudiante Nuevo", "estudiante",
                                    self.CLAVE_NUEVA, curso_id=int(curso.id), apoderado_correo="apoderado.nuevo@correo.cl")
         r = self.cliente.post("/login", json={"correo": "apoderado.nuevo@correo.cl", "clave": self.CLAVE_NUEVA})
@@ -353,17 +384,21 @@ class PruebasAltaDeCuentas(BaseApi):
 
     def test_rechaza_cuentas_mal_formadas(self):
         casos = [
-            dict(correo="sin-arroba", nombre="Nombre Ok", rol="docente", clave=self.CLAVE_NUEVA),
-            dict(correo="a@b.cl", nombre="N", rol="docente", clave=self.CLAVE_NUEVA),
-            dict(correo="a@b.cl", nombre="Nombre Ok", rol="director", clave=self.CLAVE_NUEVA),
-            dict(correo="a@b.cl", nombre="Nombre Ok", rol="docente", clave="corta1"),
-            dict(correo="a@b.cl", nombre="Nombre Ok", rol="docente", clave="12345678901234"),
-            dict(correo=correo("sofia.morales"), nombre="Repetida", rol="docente", clave=self.CLAVE_NUEVA),
+            dict(correo="sin-arroba", nombre="Nombre Ok", rol="docente", clave=self.CLAVE_NUEVA, colegio_id=1),
+            dict(correo="a@b.cl", nombre="N", rol="docente", clave=self.CLAVE_NUEVA, colegio_id=1),
+            dict(correo="a@b.cl", nombre="Nombre Ok", rol="director", clave=self.CLAVE_NUEVA, colegio_id=1),
+            dict(correo="a@b.cl", nombre="Nombre Ok", rol="docente", clave="corta1", colegio_id=1),
+            dict(correo="a@b.cl", nombre="Nombre Ok", rol="docente", clave="12345678901234", colegio_id=1),
+            dict(correo=correo("sofia.morales"), nombre="Repetida", rol="docente", clave=self.CLAVE_NUEVA,
+                 colegio_id=1),
+            dict(correo="a@b.cl", nombre="Sin Colegio", rol="docente", clave=self.CLAVE_NUEVA),
+            dict(correo="a@b.cl", nombre="Colegio Falso", rol="apoderado", clave=self.CLAVE_NUEVA, colegio_id=999),
             dict(correo="e@b.cl", nombre="Sin Curso", rol="estudiante", clave=self.CLAVE_NUEVA),
             dict(correo="e@b.cl", nombre="Curso Falso", rol="estudiante", clave=self.CLAVE_NUEVA, curso_id=999),
             dict(correo="e@b.cl", nombre="Apod Falso", rol="estudiante", clave=self.CLAVE_NUEVA, curso_id=1,
                  apoderado_correo=correo("carolina.fuentes")),     # ese correo es de una docente, no de un apoderado
-            dict(correo="a@b.cl", nombre="Nombre Ok", rol="apoderado", clave=self.CLAVE_NUEVA, curso_nuevo=("X", "Y")),
+            dict(correo="a@b.cl", nombre="Nombre Ok", rol="apoderado", clave=self.CLAVE_NUEVA, curso_nuevo=("X", "Y"),
+                 colegio_id=1),
         ]
         for caso in casos:
             with self.assertRaises(ErrorAlta, msg=caso):
@@ -384,13 +419,155 @@ class PruebasSqlDeProduccion(unittest.TestCase):
         self.assertIn("DROP TABLE", demo)
 
 
+class PruebasColegios(BaseApi):
+    """Dos colegios con sus propias personas: lo de uno nunca debe verse ni cambiarse desde el otro."""
+
+    def setUp(self):
+        super().setUp()
+        self.b = self.colegio_b()
+        self.sofia, self.andres = self.id_de("sofia.morales"), self.id_de("andres.morales")
+
+    def paquete(self, usuario: str) -> dict:
+        r = self.cliente.get("/paquete", headers=self.cabeceras(usuario))
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()
+
+    def personas_en(self, paquete: dict) -> set[int]:
+        return {int(u["id"]) for u in paquete["usuarios"]}
+
+    # --- Lo que cada colegio recibe ---------------------------------------------------------------
+    def test_cada_colegio_recibe_solo_lo_suyo(self):
+        del_a, del_b = self.paquete("carolina.fuentes"), self.paquete("docente.b")
+        self.assertEqual([c["nombre"] for c in del_a["colegios"]], ["Colegio Demo"])
+        self.assertEqual([c["nombre"] for c in del_b["colegios"]], ["Escuela Rural B"])
+        self.assertEqual({int(u["colegio_id"]) for u in del_a["usuarios"]}, {1})
+        self.assertEqual({int(u["colegio_id"]) for u in del_b["usuarios"]}, {self.b["colegio"]})
+        self.assertEqual(self.personas_en(del_b), {self.b["docente"], self.b["estudiante"], self.b["apoderado"]})
+        self.assertEqual(del_b["curso_ids"], [self.b["curso"]])
+        self.assertEqual({int(c["estudiante_id"]) for c in del_b["calificaciones"]}, {self.b["estudiante"]})
+        self.assertEqual([a["titulo"] for a in del_b["avisos"]], ["Aviso de B"])
+        self.assertNotIn("Aviso de B", str(del_a))
+        self.assertNotIn("Evaluación B", str(del_a))
+        self.assertNotIn(correo("docente.b"), str(del_a))
+
+    def test_apoderado_y_estudiante_tampoco_ven_otro_colegio(self):
+        for usuario in ("andres.morales", "sofia.morales"):
+            texto = str(self.paquete(usuario))
+            self.assertNotIn("Escuela Rural B", texto)
+            self.assertNotIn(correo("estudiante.b"), texto)
+        self.assertEqual(self.paquete("apoderado.b")["estudiante_ids"], [self.b["estudiante"]])
+        self.assertEqual(self.paquete("estudiante.b")["curso_ids"], [self.b["curso"]])
+
+    def test_el_login_informa_el_colegio(self):
+        self.assertEqual(self.ingresar("docente.b").json()["usuario"]["colegio"], "Escuela Rural B")
+        self.assertEqual(self.ingresar("andres.morales").json()["usuario"]["colegio"], "Colegio Demo")
+
+    # --- Los cambios no cruzan de colegio ---------------------------------------------------------
+    def test_los_cambios_no_cruzan_de_colegio(self):
+        datos = {"estudiante_id": self.b["estudiante"], "tema_id": "mat-potencias", "activo": True,
+                 "fecha": ahora()}
+        self.assertEqual(self.cambio("carolina.fuentes", "desbloqueo", datos).status_code, 403)
+        aviso = {"codigo": "aviso-cruzado-01", "curso_id": self.b["curso"], "estudiante_id": None,
+                 "titulo": "Intruso", "cuerpo": "No debería entrar", "tipo": "info", "creado_en": ahora()}
+        self.assertEqual(self.cambio("carolina.fuentes", "aviso", aviso).status_code, 403)
+        self.assertEqual(self.cambio("docente.b", "aviso", dict(aviso, curso_id=1)).status_code, 403)
+        leido = {"aviso_codigo": "demo-aviso-1", "fecha": ahora()}
+        self.assertEqual(self.cambio("apoderado.b", "aviso_leido", leido).status_code, 403)
+        intento = {"codigo": "intento-cruzado-01", "estudiante_id": self.sofia, "tema_id": "mat-potencias",
+                   "correctas": 5, "total": 5, "porcentaje": 100, "nota": 7.0, "realizado_en": ahora(),
+                   "origen": "app"}
+        self.assertEqual(self.cambio("estudiante.b", "intento", intento).status_code, 403)
+        self.assertIsNone(self.repo.aviso_por_codigo("aviso-cruzado-01"))
+        # y dentro de su propio colegio todo sigue funcionando
+        propio = dict(aviso, codigo="aviso-propio-b-01", curso_id=self.b["curso"])
+        self.assertEqual(self.cambio("docente.b", "aviso", propio).status_code, 200)
+        self.assertEqual(self.cambio("apoderado.b", "aviso_leido",
+                                     {"aviso_codigo": "aviso-colegio-b-1", "fecha": ahora()}).status_code, 200)
+
+    # --- Defensa en profundidad: aunque los datos estén mal enlazados ----------------------------
+    def test_apoderado_de_otro_colegio_enlazado_por_error_no_filtra_datos(self):
+        self.repo.bd.ejecutar("UPDATE estudiantes SET apoderado_id = ? WHERE usuario_id = ?",
+                              (self.andres, self.b["estudiante"]))      # Andrés (colegio A) "apoderado" de un niño de B
+        paquete = self.paquete("andres.morales")
+        self.assertEqual(paquete["estudiante_ids"], [self.sofia])
+        self.assertNotIn(correo("estudiante.b"), str(paquete))
+        self.assertNotIn("Evaluación B", str(paquete))
+
+    def test_estudiante_de_otro_colegio_metido_en_un_curso_ajeno_no_se_comparte(self):
+        self.repo.bd.ejecutar("UPDATE estudiantes SET curso_id = 1 WHERE usuario_id = ?", (self.b["estudiante"],))
+        paquete = self.paquete("carolina.fuentes")
+        self.assertNotIn(self.b["estudiante"], paquete["estudiante_ids"])
+        self.assertNotIn(correo("estudiante.b"), str(paquete))
+        datos = {"estudiante_id": self.b["estudiante"], "tema_id": "mat-potencias", "activo": True, "fecha": ahora()}
+        self.assertEqual(self.cambio("carolina.fuentes", "desbloqueo", datos).status_code, 403)
+
+    def test_docente_de_otro_colegio_asignada_a_un_curso_ajeno_no_lo_ve(self):
+        self.repo.bd.ejecutar("UPDATE cursos SET docente_id = ? WHERE id = 1", (self.b["docente"],))
+        paquete = self.paquete("docente.b")
+        self.assertEqual(paquete["curso_ids"], [self.b["curso"]])
+        aviso = {"codigo": "aviso-ajeno-0001", "curso_id": 1, "estudiante_id": None, "titulo": "Intruso",
+                 "cuerpo": "Curso de otro colegio", "tipo": "info", "creado_en": ahora()}
+        self.assertEqual(self.cambio("docente.b", "aviso", aviso).status_code, 403)
+
+    # --- Cuentas sin colegio, colegio suspendido, cambio de colegio ---------------------------------
+    def test_cuenta_sin_colegio_no_ingresa(self):
+        self.persona("sin.colegio", "docente", None)
+        r = self.ingresar("sin.colegio")
+        self.assertEqual(r.status_code, 403)
+        self.assertIn("colegio", r.json()["detail"])
+
+    def test_colegio_suspendido_bloquea_ingreso_y_sesiones_abiertas(self):
+        cabeceras = self.cabeceras("docente.b")
+        self.assertEqual(self.cliente.get("/paquete", headers=cabeceras).status_code, 200)
+        cambiar_estado(self.repo, self.b["colegio"], activo=False)
+        self.assertEqual(self.cliente.get("/paquete", headers=cabeceras).status_code, 403)
+        self.assertEqual(self.ingresar("docente.b").status_code, 403)
+        self.assertEqual(self.ingresar("carolina.fuentes").status_code, 200)    # el otro colegio sigue igual
+        cambiar_estado(self.repo, self.b["colegio"], activo=True)
+        self.assertEqual(self.ingresar("docente.b").status_code, 200)
+
+    def test_si_la_persona_cambia_de_colegio_su_sesion_deja_de_servir(self):
+        cabeceras = self.cabeceras("apoderado.b")
+        self.repo.bd.ejecutar("UPDATE usuarios SET colegio_id = 1 WHERE id = ?", (self.b["apoderado"],))
+        self.assertEqual(self.cliente.get("/paquete", headers=cabeceras).status_code, 401)
+
+    # --- Reglas al crear colegios y cuentas -------------------------------------------------------
+    def test_no_se_mezclan_colegios_al_crear_cuentas(self):
+        clave = "Clave-larga-2026"
+        with self.assertRaises(ErrorAlta):      # apoderado del colegio A para un estudiante del curso del colegio B
+            crear_usuario(self.repo, "e1@correo.cl", "Estudiante Uno", "estudiante", clave,
+                          curso_id=self.b["curso"], apoderado_correo=correo("andres.morales"))
+        with self.assertRaises(ErrorAlta):      # curso de B pero pidiendo colegio A
+            crear_usuario(self.repo, "e2@correo.cl", "Estudiante Dos", "estudiante", clave,
+                          curso_id=self.b["curso"], colegio_id=1)
+        nuevo = crear_usuario(self.repo, "e3@correo.cl", "Estudiante Tres", "estudiante", clave,
+                              curso_id=self.b["curso"], apoderado_correo=correo("apoderado.b"))
+        self.assertEqual(int(self.repo.usuario_por_id(nuevo)["colegio_id"]), self.b["colegio"])
+        with self.assertRaises(ErrorAlta):      # el correo es único en todo el sistema, no solo en un colegio
+            crear_usuario(self.repo, correo("docente.b"), "Docente Repetida", "docente", clave, colegio_id=1)
+        cambiar_estado(self.repo, self.b["colegio"], activo=False)
+        with self.assertRaises(ErrorAlta):
+            crear_usuario(self.repo, "e4@correo.cl", "Estudiante Cuatro", "apoderado", clave,
+                          colegio_id=self.b["colegio"])
+
+    def test_reglas_de_colegios(self):
+        for malo in ("", "ab", "x" * 121):
+            with self.assertRaises(ErrorColegio):
+                crear_colegio(self.repo, malo)
+        with self.assertRaises(ErrorColegio):
+            crear_colegio(self.repo, "  Escuela   Rural B ")      # mismo nombre aunque cambien los espacios
+        with self.assertRaises(ErrorColegio):
+            cambiar_estado(self.repo, 999, activo=False)
+
+
 @unittest.skipUnless(HAY_API, "FastAPI no está instalado")
 class PruebasPiezas(unittest.TestCase):
     def test_tokens_vencen_y_no_se_pueden_alterar(self):
         reloj = [1_000_000.0]
         servicio = ServicioTokens("secreto-de-prueba-muy-largo-123456", 30, 30, reloj=lambda: reloj[0])
-        token = servicio.crear_acceso(7, "docente")
+        token = servicio.crear_acceso(7, "docente", 3)
         self.assertEqual(servicio.leer(token, "acceso")["usuario_id"], 7)
+        self.assertEqual(servicio.leer(token, "acceso")["col"], 3)
         with self.assertRaises(TokenInvalido):
             servicio.leer(token, "renovacion")
         with self.assertRaises(TokenInvalido):

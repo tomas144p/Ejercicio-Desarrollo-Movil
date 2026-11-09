@@ -38,6 +38,17 @@ class ServicioDatos:
         self.usuario = None
         self.invalidar()
 
+    def colegio_nombre(self) -> str:
+        """Nombre del colegio de quien tiene la sesión abierta ("" si todavía no se ha descargado)."""
+        if self.usuario is None:
+            return ""
+        colegio_id = self.usuario.colegio_id
+        if colegio_id is None:      # ingreso sin conexión: el colegio quedó guardado con los datos descargados
+            fila = self.local.usuario_por_id(self.usuario.id)
+            colegio_id = fila.get("colegio_id") if fila else None
+        fila = self.local.colegio(int(colegio_id)) if colegio_id is not None else None
+        return fila["nombre"] if fila else ""
+
     def invalidar(self) -> None:
         """Olvida lo guardado en memoria (se llama después de sincronizar)."""
         self._temas = None

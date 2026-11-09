@@ -41,7 +41,7 @@ class PantallaEstudiante(PantallaConPestanas):
         return f"Hola, {self.app.usuario.primer_nombre}"
 
     def subtitulo(self) -> str:
-        return self.ficha.curso.nombre if self.ficha and self.ficha.curso else "Estudiante"
+        return self.con_colegio(self.ficha.curso.nombre if self.ficha and self.ficha.curso else "Estudiante")
 
     def _sin_datos(self, c) -> bool:
         if self.ficha is None:

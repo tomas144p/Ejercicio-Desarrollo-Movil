@@ -56,7 +56,8 @@ class PantallaApoderado(PantallaConPestanas):
         return f"Hola, {self.app.usuario.primer_nombre}"
 
     def subtitulo(self) -> str:
-        return f"Apoderado/a de {self.ficha.estudiante.primer_nombre}" if self.ficha else "Apoderado/a"
+        return self.con_colegio(f"Apoderado/a de {self.ficha.estudiante.primer_nombre}" if self.ficha
+                                else "Apoderado/a")
 
     def actualizar_insignias(self) -> None:
         self.barra_inferior.insignia("avisos", sum(1 for a in self.avisos if not a.leido))

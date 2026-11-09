@@ -151,6 +151,8 @@ HTTPS, y es la API la que usa MySQL y la IA. Así la app ya no lleva claves de b
 
 - Activarlo en la app: `config.local.json` → `{"servidor": {"motor": "http", "url": "https://..."}}`.
 - Probarlo en el PC: `pip install -r backend/requirements.txt` y `python -m backend` (guía completa en `backend/README.md`).
+- **Colegios**: una base atiende a varios colegios y nada se mezcla (cada cuenta y curso es de UN colegio; ver
+  `backend/README.md`). Cada pantalla muestra el colegio en el encabezado.
 - Los modos `auto`, `mysql` y `demo` siguen existiendo para desarrollo, pero **no deben usarse en una versión
   que se entregue a un colegio**.
 - Pruebas: `python -m unittest discover pruebas` (las del backend se omiten solas si FastAPI no está instalado).

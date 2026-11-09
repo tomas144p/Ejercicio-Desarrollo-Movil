@@ -433,5 +433,78 @@ class PruebasArquitectura(unittest.TestCase):
         self.assertLess(len(lineas), 25)
 
 
+class PruebasColegiosYMigracion(unittest.TestCase):
+    """Las bases creadas antes de que existieran los colegios se actualizan solas y sin perder nada."""
+
+    ESQUEMA_ANTIGUO = (
+        "CREATE TABLE usuarios (id INTEGER PRIMARY KEY AUTOINCREMENT, correo VARCHAR(120) NOT NULL UNIQUE, "
+        "nombre VARCHAR(120) NOT NULL, rol VARCHAR(20) NOT NULL, clave_hash VARCHAR(200) NOT NULL, "
+        "activo INTEGER NOT NULL DEFAULT 1, creado_en TEXT)",
+        "CREATE TABLE cursos (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre VARCHAR(60) NOT NULL, "
+        "nivel VARCHAR(40) NOT NULL, docente_id INTEGER NOT NULL, anio INTEGER NOT NULL DEFAULT 2026)",
+    )
+
+    def setUp(self):
+        self.carpeta = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.carpeta, ignore_errors=True)
+
+    def base_antigua(self):
+        from models.datos.conexiones import ConexionSQLite
+        bd = ConexionSQLite(self.carpeta / "antigua.db", claves_foraneas=False)
+        for sentencia in self.ESQUEMA_ANTIGUO:
+            bd.ejecutar(sentencia)
+        bd.ejecutar("INSERT INTO usuarios (id, correo, nombre, rol, clave_hash) VALUES (1, 'a@b.cl', 'Ana', 'docente', 'x')")
+        bd.ejecutar("INSERT INTO cursos (id, nombre, nivel, docente_id) VALUES (1, '7° B', '7° básico', 1)")
+        return bd
+
+    def test_migra_columnas_sin_perder_filas(self):
+        from models.datos.esquema import columnas_existentes, migrar_columnas
+        bd = self.base_antigua()
+        self.assertNotIn("colegio_id", columnas_existentes(bd, "usuarios"))
+        crear_esquema(bd, incluir_locales=False, claves_foraneas=False)
+        self.assertIn("colegio_id", columnas_existentes(bd, "usuarios"))
+        self.assertIn("colegio_id", columnas_existentes(bd, "cursos"))
+        self.assertEqual(bd.valor("SELECT COUNT(*) FROM usuarios", defecto=0), 1)
+        self.assertEqual(bd.valor("SELECT nombre FROM usuarios WHERE id = 1"), "Ana")
+        self.assertEqual(migrar_columnas(bd), [])          # una segunda vez no cambia nada
+
+    def test_demo_antigua_queda_en_colegio_demo(self):
+        bd = self.base_antigua()
+        crear_esquema(bd, incluir_locales=False, claves_foraneas=False)
+        GestorServidor._asignar_colegio_demo(bd)
+        self.assertEqual(bd.valor("SELECT nombre FROM colegios WHERE id = 1"), "Colegio Demo")
+        self.assertEqual(bd.valor("SELECT colegio_id FROM usuarios WHERE id = 1"), 1)
+        self.assertEqual(bd.valor("SELECT colegio_id FROM cursos WHERE id = 1"), 1)
+        GestorServidor._asignar_colegio_demo(bd)             # repetirlo es inofensivo
+        self.assertEqual(bd.valor("SELECT COUNT(*) FROM colegios", defecto=0), 1)
+
+    def test_la_base_nueva_exige_colegio_en_los_cursos(self):
+        from models.datos.conexiones import ConexionSQLite
+        bd = ConexionSQLite(self.carpeta / "nueva.db", claves_foraneas=False)
+        crear_esquema(bd, incluir_locales=False, claves_foraneas=False)
+        with self.assertRaises(Exception):
+            bd.ejecutar("INSERT INTO cursos (nombre, nivel, docente_id) VALUES ('Sin colegio', '7°', 1)")
+
+    def test_el_telefono_guarda_el_colegio_y_la_persona_lo_lleva(self):
+        servidor = GestorServidor(ConfigServidor(motor="demo"), self.carpeta).inicializar().servidor
+        fila = servidor.usuario_por_correo(DatosIniciales().correo("andres.morales"))
+        usuario = Usuario.desde_fila(fila)
+        self.assertEqual(usuario.colegio_id, 1)
+        local = BaseDatosLocal(self.carpeta / "local.db")
+        local.aplicar_paquete(servidor.paquete_para(usuario))
+        self.assertEqual([c["nombre"] for c in local.colegios()], ["Colegio Demo"])
+        self.assertNotIn("clave_hash", str(servidor.paquete_para(usuario).usuarios))
+
+    def test_una_cuenta_sin_colegio_no_recibe_datos_de_personas(self):
+        servidor = GestorServidor(ConfigServidor(motor="demo"), self.carpeta).inicializar().servidor
+        fila = dict(servidor.usuario_por_correo(DatosIniciales().correo("andres.morales")), colegio_id=None)
+        paquete = servidor.paquete_para(Usuario.desde_fila(fila))
+        self.assertEqual((paquete.usuarios, paquete.estudiantes, paquete.calificaciones, paquete.avisos),
+                         ([], [], [], []))
+        self.assertTrue(paquete.temas)                       # la materia sí: no es información de personas
+
+
 if __name__ == "__main__":
     unittest.main()

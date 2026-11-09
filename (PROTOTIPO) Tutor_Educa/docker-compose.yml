@@ -2,7 +2,8 @@
 #   1) cp backend/.env.ejemplo .env   y completa los valores
 #   2) python herramientas/generar_sql_mysql.py --produccion
 #   3) docker compose up -d --build
-#   4) docker compose exec api python -m backend.crear_usuario docente correo@colegio.cl "Nombre" --curso "7° Básico B"
+#   4) docker compose exec api python -m backend.crear_colegio "Nombre del colegio"
+#      docker compose exec api python -m backend.crear_usuario docente correo@colegio.cl "Nombre" --colegio-id 1 --curso "7° Básico B"
 #
 # Solo Caddy (80/443) está abierto a internet. La API y la base de datos quedan en una red privada.
 

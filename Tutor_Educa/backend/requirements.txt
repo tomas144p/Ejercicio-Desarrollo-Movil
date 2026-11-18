@@ -1,0 +1,10 @@
+# Dependencias del backend (el celular NO necesita nada de esto).
+fastapi>=0.110
+uvicorn[standard]>=0.29
+PyJWT>=2.8
+# Conexión a MySQL (obligatoria en producción).
+# "cryptography" es NECESARIO con MySQL 8.x: su autenticación por defecto (caching_sha2_password) falla sin él.
+PyMySQL>=1.1
+cryptography>=42
+# Para las pruebas (python -m unittest discover pruebas)
+httpx>=0.27

@@ -1,0 +1,67 @@
+# Producción en un solo servidor (por ejemplo AWS Lightsail):
+#   1) cp backend/.env.ejemplo .env   y completar TODOS los valores
+#   2) python herramientas/generar_sql_mysql.py --produccion        (desde la raíz del proyecto)
+#   3) docker compose -f backend/docker-compose.yml --env-file .env up -d --build
+#
+# Solo "caddy" se expone a internet (puertos 80 y 443, con HTTPS automático). La API y la base de datos
+# viven en una red interna: nadie de afuera puede hablarles directamente.
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      TUTOR_DOMINIO: ${TUTOR_DOMINIO:?Falta TUTOR_DOMINIO en .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_datos:/data
+    depends_on: [api]
+    networks: [publica, interna]
+
+  api:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      TUTOR_ENTORNO: produccion
+      TUTOR_JWT_SECRETO: ${TUTOR_JWT_SECRETO:?Falta TUTOR_JWT_SECRETO en .env}
+      TUTOR_DB_MOTOR: mysql
+      TUTOR_DB_HOST: db
+      TUTOR_DB_USUARIO: tutor_api
+      TUTOR_DB_CLAVE: ${MYSQL_PASSWORD:?Falta MYSQL_PASSWORD en .env}
+      TUTOR_DB_NOMBRE: tutor_educa
+      TUTOR_IA_API_KEY: ${TUTOR_IA_API_KEY:-}
+      TUTOR_IA_CUOTA_DIARIA: ${TUTOR_IA_CUOTA_DIARIA:-40}
+      TUTOR_CONFIAR_PROXY: "1"        # la IP real de cada persona llega por Caddy (X-Forwarded-For)
+    depends_on:
+      db: {condition: service_healthy}
+    networks: [interna]
+
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Falta MYSQL_ROOT_PASSWORD en .env}
+      MYSQL_DATABASE: tutor_educa
+      MYSQL_USER: tutor_api
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Falta MYSQL_PASSWORD en .env}
+    volumes:
+      - mysql_datos:/var/lib/mysql
+      # Crea las tablas y carga la materia la primera vez (sin cuentas de prueba).
+      - ../database/tutor_educa_produccion.sql:/docker-entrypoint-initdb.d/01_esquema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [interna]
+
+networks:
+  publica: {}
+  interna: {}           # api y db no publican ningún puerto: solo Caddy (80 y 443) es visible desde internet
+
+volumes:
+  mysql_datos: {}
+  caddy_datos: {}

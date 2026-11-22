@@ -4,6 +4,9 @@ datos de demostración) lista para importar en phpMyAdmin.
 
     python herramientas/generar_sql_mysql.py                 (demostración: con cuentas de prueba)
     python herramientas/generar_sql_mysql.py --produccion    (solo tablas y materia: SIN cuentas ni notas)
+    python herramientas/generar_sql_mysql.py --migracion     (pasa una base de la versión 0.3 a la 0.4: colegios)
+    python herramientas/generar_sql_mysql.py --migracion-roles  (suma administradores y códigos de invitación)
+    python herramientas/generar_sql_mysql.py --migracion-errores (suma el registro de errores de la app)
 
 En phpMyAdmin: pestaña "Importar", elegir el archivo y presionar "Importar".
 Se crea la base "tutor_educa". Importarlo de nuevo la deja como nueva.
@@ -19,7 +22,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
 from models.contenido.datos_iniciales import DatosIniciales  # noqa: E402
-from models.datos.esquema import TABLAS, sentencias_creacion  # noqa: E402
+from models.datos.esquema import TABLAS, TABLAS_POR_NOMBRE, sentencias_creacion  # noqa: E402
 
 
 def literal(valor) -> str:
@@ -87,7 +90,166 @@ def generar(base_datos: str = "tutor_educa", produccion: bool = False) -> str:
     return "\n".join(lineas) + "\n"
 
 
+def generar_migracion(base_datos: str = "tutor_educa") -> str:
+    """SQL único para actualizar una base MySQL creada antes de que existieran los colegios."""
+    colegios = TABLAS_POR_NOMBRE["colegios"].sentencias("mysql")[0]
+    return "\n".join([
+        "-- ===============================================================",
+        "-- Tutor Educa: migración de la versión 0.3 a la 0.4 (colegios)",
+        f"-- Generado el {date.today():%d-%m-%Y} con herramientas/generar_sql_mysql.py --migracion",
+        "--",
+        "-- Qué hace: crea la tabla colegios, agrega colegio_id a usuarios y cursos, crea UN colegio con el nombre",
+        "-- que escribas abajo y le asigna todas las cuentas y cursos que ya existen.",
+        "-- Si tu base ya mezclaba varios colegios, asigna cada cuenta y curso con UPDATE antes del último paso.",
+        "--",
+        "-- IMPORTANTE: haz un respaldo de la base antes. Ejecútalo UNA sola vez.",
+        "-- ===============================================================",
+        "",
+        "SET NAMES utf8mb4;",
+        f"USE {base_datos};",
+        "",
+        colegios + ";",
+        "",
+        "ALTER TABLE usuarios ADD COLUMN colegio_id INT NULL, ADD KEY idx_usuarios_colegio_id (colegio_id),",
+        "  ADD CONSTRAINT fk_usuarios_colegio FOREIGN KEY (colegio_id) REFERENCES colegios (id);",
+        "ALTER TABLE cursos ADD COLUMN colegio_id INT NULL, ADD KEY idx_cursos_colegio_id (colegio_id),",
+        "  ADD CONSTRAINT fk_cursos_colegio FOREIGN KEY (colegio_id) REFERENCES colegios (id);",
+        "",
+        "-- >>> CAMBIA ESTE NOMBRE por el de tu colegio <<<",
+        "INSERT INTO colegios (nombre, activo, creado_en) VALUES ('NOMBRE DE TU COLEGIO', 1, NOW());",
+        "SET @colegio = LAST_INSERT_ID();",
+        "UPDATE usuarios SET colegio_id = @colegio WHERE colegio_id IS NULL;",
+        "UPDATE cursos SET colegio_id = @colegio WHERE colegio_id IS NULL;",
+        "",
+        "-- Desde ahora todo curso debe pertenecer a un colegio.",
+        "ALTER TABLE cursos MODIFY colegio_id INT NOT NULL;",
+        "",
+    ])
+
+
+def generar_migracion_roles(base_datos: str = "tutor_educa") -> str:
+    """SQL único para una base que ya tiene colegios: agrega los perfiles administrativos y las invitaciones."""
+    perfiles = ", ".join(f"'{o}'" for o in next(c for c in TABLAS_POR_NOMBRE["usuarios"].columnas
+                                                  if c.nombre == "rol").opciones)
+    invitaciones = TABLAS_POR_NOMBRE["invitaciones"].sentencias("mysql")[0]
+    return "\n".join([
+        "-- ===============================================================",
+        "-- Tutor Educa: migración de colegios a administradores e invitaciones",
+        f"-- Generado el {date.today():%d-%m-%Y} con herramientas/generar_sql_mysql.py --migracion-roles",
+        "--",
+        "-- Qué hace: permite los perfiles «admin» y «superadmin» en la tabla usuarios y crea la tabla invitaciones",
+        "-- (códigos de un solo uso para activar cuentas). No cambia ni borra ningún dato existente.",
+        "-- Si tu base es de la versión 0.3, ejecuta ANTES database/migracion_colegios.sql.",
+        "-- IMPORTANTE: haz un respaldo antes. Ejecútalo UNA sola vez.",
+        "-- ===============================================================",
+        "",
+        "SET NAMES utf8mb4;",
+        f"USE {base_datos};",
+        "",
+        f"ALTER TABLE usuarios MODIFY rol ENUM({perfiles}) NOT NULL;",
+        "",
+        invitaciones + ";",
+        "",
+    ])
+
+
+def generar_migracion_errores(base_datos: str = "tutor_educa") -> str:
+    """SQL único para una base que ya tiene administradores: agrega la tabla del registro de errores de la app."""
+    tabla = TABLAS_POR_NOMBRE["errores_app"].sentencias("mysql")[0]
+    indices = [f"CREATE INDEX idx_errores_app_{c} ON errores_app ({c});" for c in TABLAS_POR_NOMBRE["errores_app"].indices]
+    return "\n".join([
+        "-- ===============================================================",
+        "-- Tutor Educa: migración para el registro de errores de la app",
+        f"-- Generado el {date.today():%d-%m-%Y} con herramientas/generar_sql_mysql.py --migracion-errores",
+        "--",
+        "-- Qué hace: crea la tabla errores_app (errores y cierres inesperados, sin datos personales).",
+        "-- No cambia ni borra ningún dato existente. Si tu base es anterior, ejecuta ANTES las otras migraciones.",
+        "-- IMPORTANTE: haz un respaldo antes. Ejecútalo UNA sola vez.",
+        "-- ===============================================================",
+        "",
+        "SET NAMES utf8mb4;",
+        f"USE {base_datos};",
+        "",
+        tabla + ";",
+        "",
+        *indices,
+        "",
+    ])
+
+
+def generar_migracion_calendario(base_datos: str = "tutor_educa") -> str:
+    """SQL único para una base existente: agrega el calendario (asistencia diaria, eventos y feriados, sábados)."""
+    tablas = [TABLAS_POR_NOMBRE[n].sentencias("mysql")[0] + ";" for n in ("asistencia_dias", "asistencia", "eventos")]
+    indices = [f"CREATE INDEX idx_{n}_{c} ON {n} ({c});" for n in ("asistencia", "eventos")
+               for c in TABLAS_POR_NOMBRE[n].indices]
+    return "\n".join([
+        "-- ===============================================================",
+        "-- Tutor Educa: migración del calendario (tareas 20 y 24)",
+        f"-- Generado el {date.today():%d-%m-%Y} con herramientas/generar_sql_mysql.py --migracion-calendario",
+        "--",
+        "-- Qué hace: agrega la columna cursos.clases_sabado (apagada: ningún curso cambia) y crea las tablas",
+        "-- asistencia_dias (días en que se pasó lista), asistencia (solo las inasistencias) y eventos (feriados y",
+        "-- eventos). No cambia ni borra ningún dato existente. Si tu base es anterior, ejecuta ANTES las otras migraciones.",
+        "-- IMPORTANTE: haz un respaldo antes. Ejecútalo UNA sola vez.",
+        "-- ===============================================================",
+        "",
+        "SET NAMES utf8mb4;",
+        f"USE {base_datos};",
+        "",
+        "ALTER TABLE cursos ADD COLUMN clases_sabado INT NOT NULL DEFAULT 0;",
+        "",
+        *[t + "\n" for t in tablas],
+        *indices,
+        "",
+    ])
+
+
+def generar_migracion_reloj(base_datos: str = "tutor_educa") -> str:
+    """SQL único para una base existente: agrega la tabla donde el servidor recuerda la última hora que vio su reloj."""
+    return "\n".join([
+        "-- ===============================================================",
+        "-- Tutor Educa: migración del reloj del servidor",
+        f"-- Generado el {date.today():%d-%m-%Y} con herramientas/generar_sql_mysql.py --migracion-reloj",
+        "--",
+        "-- Qué hace: crea la tabla estado_servidor. El servidor anota ahí la última hora que vio su reloj y, si de",
+        "-- pronto marca una hora anterior (reinicio o corte de luz), no registra asistencia hasta que se corrija.",
+        "-- No cambia ni borra ningún dato existente. Ejecútalo UNA sola vez (después de migracion_calendario.sql).",
+        "-- ===============================================================",
+        "",
+        "SET NAMES utf8mb4;",
+        f"USE {base_datos};",
+        "",
+        TABLAS_POR_NOMBRE["estado_servidor"].sentencias("mysql")[0] + ";",
+        "",
+    ])
+
+
 if __name__ == "__main__":
+    if "--migracion-reloj" in sys.argv[1:]:
+        destino = RAIZ / "database" / "migracion_reloj.sql"
+        destino.write_text(generar_migracion_reloj(), encoding="utf-8")
+        print(f"Listo: {destino.relative_to(RAIZ)}")
+        sys.exit(0)
+    if "--migracion-calendario" in sys.argv[1:]:
+        destino = RAIZ / "database" / "migracion_calendario.sql"
+        destino.write_text(generar_migracion_calendario(), encoding="utf-8")
+        print(f"Listo: {destino.relative_to(RAIZ)}")
+        sys.exit(0)
+    if "--migracion-errores" in sys.argv[1:]:
+        destino = RAIZ / "database" / "migracion_errores.sql"
+        destino.write_text(generar_migracion_errores(), encoding="utf-8")
+        print(f"Listo: {destino.relative_to(RAIZ)}")
+        sys.exit(0)
+    if "--migracion-roles" in sys.argv[1:]:
+        destino = RAIZ / "database" / "migracion_roles.sql"
+        destino.write_text(generar_migracion_roles(), encoding="utf-8")
+        print(f"Listo: {destino.relative_to(RAIZ)}")
+        sys.exit(0)
+    if "--migracion" in sys.argv[1:]:
+        destino = RAIZ / "database" / "migracion_colegios.sql"
+        destino.write_text(generar_migracion(), encoding="utf-8")
+        print(f"Listo: {destino.relative_to(RAIZ)}")
+        sys.exit(0)
     es_produccion = "--produccion" in sys.argv[1:]
     destino = RAIZ / "database" / ("tutor_educa_produccion.sql" if es_produccion else "tutor_educa_mysql.sql")
     destino.parent.mkdir(exist_ok=True)

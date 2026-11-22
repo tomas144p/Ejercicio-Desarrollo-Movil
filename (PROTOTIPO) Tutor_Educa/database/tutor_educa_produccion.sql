@@ -1,6 +1,6 @@
 -- ===============================================================
 -- Tutor Educa: base de datos para MySQL / MariaDB (PRODUCCIÓN)
--- Generado el 06-11-2026 con herramientas/generar_sql_mysql.py
+-- Generado el 21-11-2026 con herramientas/generar_sql_mysql.py
 --
 -- Solo crea las tablas que falten y carga la materia. Las cuentas se crean con:
 --     python -m backend.crear_usuario ...
@@ -12,15 +12,36 @@ SET FOREIGN_KEY_CHECKS = 0;
 CREATE DATABASE IF NOT EXISTS tutor_educa CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE tutor_educa;
 
+CREATE TABLE IF NOT EXISTS colegios (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(120) NOT NULL UNIQUE,
+  activo INT NOT NULL DEFAULT 1,
+  creado_en DATETIME
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Cada colegio es un espacio separado: sus cursos, docentes, estudiantes y apoderados no se mezclan';
+
 CREATE TABLE IF NOT EXISTS usuarios (
   id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   correo VARCHAR(120) NOT NULL UNIQUE,
   nombre VARCHAR(120) NOT NULL,
-  rol ENUM('estudiante', 'docente', 'apoderado') NOT NULL,
+  rol ENUM('estudiante', 'docente', 'apoderado', 'admin', 'superadmin') NOT NULL,
   clave_hash VARCHAR(200) NOT NULL,
   activo INT NOT NULL DEFAULT 1,
-  creado_en DATETIME
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Cuentas de ingreso. El rol define la pantalla de inicio';
+  creado_en DATETIME,
+  colegio_id INT,
+  FOREIGN KEY (colegio_id) REFERENCES colegios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Cuentas de ingreso. El rol define la pantalla de inicio; colegio_id, a qué colegio pertenece';
+
+CREATE TABLE IF NOT EXISTS invitaciones (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  usuario_id INT NOT NULL,
+  codigo_hash VARCHAR(64) NOT NULL UNIQUE,
+  creada_por INT,
+  creado_en DATETIME,
+  vence_en DATETIME NOT NULL,
+  usada_en DATETIME,
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
+  FOREIGN KEY (creada_por) REFERENCES usuarios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Códigos de un solo uso para activar una cuenta o cambiar la contraseña; solo se guarda su huella';
 
 CREATE TABLE IF NOT EXISTS cursos (
   id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -28,8 +49,11 @@ CREATE TABLE IF NOT EXISTS cursos (
   nivel VARCHAR(40) NOT NULL,
   docente_id INT NOT NULL,
   anio INT NOT NULL DEFAULT 2026,
-  FOREIGN KEY (docente_id) REFERENCES usuarios(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Cursos y su docente a cargo';
+  colegio_id INT NOT NULL,
+  clases_sabado INT NOT NULL DEFAULT 0,
+  FOREIGN KEY (docente_id) REFERENCES usuarios(id),
+  FOREIGN KEY (colegio_id) REFERENCES colegios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Cursos, su docente a cargo y el colegio al que pertenecen. clases_sabado: 1 si el curso tiene clases los sábados';
 
 CREATE TABLE IF NOT EXISTS estudiantes (
   usuario_id INT NOT NULL PRIMARY KEY,
@@ -155,6 +179,69 @@ CREATE TABLE IF NOT EXISTS avisos_leidos (
   FOREIGN KEY (aviso_id) REFERENCES avisos(id) ON DELETE CASCADE,
   FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Qué apoderado leyó cada aviso';
+
+CREATE TABLE IF NOT EXISTS asistencia_dias (
+  curso_id INT NOT NULL,
+  fecha DATE NOT NULL,
+  registrado_por INT,
+  registrado_en DATETIME,
+  PRIMARY KEY (curso_id, fecha),
+  FOREIGN KEY (curso_id) REFERENCES cursos(id) ON DELETE CASCADE,
+  FOREIGN KEY (registrado_por) REFERENCES usuarios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Días en que se pasó lista en cada curso. Un día sin fila aquí no cuenta para la asistencia';
+
+CREATE TABLE IF NOT EXISTS asistencia (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  estudiante_id INT NOT NULL,
+  fecha DATE NOT NULL,
+  estado ENUM('ausente', 'justificado') NOT NULL,
+  registrado_por INT,
+  registrado_en DATETIME,
+  UNIQUE (estudiante_id, fecha),
+  FOREIGN KEY (estudiante_id) REFERENCES estudiantes(usuario_id) ON DELETE CASCADE,
+  FOREIGN KEY (registrado_por) REFERENCES usuarios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Solo las excepciones: quién faltó ese día. En un día con lista, quien no aparece aquí estuvo presente';
+
+CREATE TABLE IF NOT EXISTS eventos (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  codigo VARCHAR(40) NOT NULL UNIQUE,
+  colegio_id INT NOT NULL,
+  curso_id INT,
+  titulo VARCHAR(120) NOT NULL,
+  descripcion TEXT,
+  tipo ENUM('feriado', 'sin_clases', 'celebracion', 'evaluacion', 'reunion', 'otro') NOT NULL DEFAULT 'otro',
+  fecha_inicio DATE NOT NULL,
+  fecha_fin DATE NOT NULL,
+  hay_clases INT NOT NULL DEFAULT 1,
+  creado_por INT,
+  creado_en DATETIME,
+  activo INT NOT NULL DEFAULT 1,
+  FOREIGN KEY (colegio_id) REFERENCES colegios(id),
+  FOREIGN KEY (curso_id) REFERENCES cursos(id) ON DELETE CASCADE,
+  FOREIGN KEY (creado_por) REFERENCES usuarios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Eventos y feriados. curso_id NULL = todo el colegio. Un evento con hay_clases=0 no permite pasar lista';
+
+CREATE TABLE IF NOT EXISTS errores_app (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  codigo VARCHAR(40) NOT NULL UNIQUE,
+  colegio_id INT,
+  rol VARCHAR(20),
+  creado_en DATETIME NOT NULL,
+  recibido_en DATETIME NOT NULL,
+  version VARCHAR(20),
+  plataforma VARCHAR(20),
+  pantalla VARCHAR(40),
+  tipo VARCHAR(80) NOT NULL,
+  mensaje TEXT,
+  traza TEXT,
+  huella VARCHAR(16) NOT NULL,
+  FOREIGN KEY (colegio_id) REFERENCES colegios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Errores y cierres inesperados de la app. Sin datos personales: solo colegio, perfil y causa';
+
+CREATE TABLE IF NOT EXISTS estado_servidor (
+  clave VARCHAR(40) NOT NULL PRIMARY KEY,
+  valor VARCHAR(80)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Valores internos del servidor. Hoy: la última hora que vio su reloj (para detectar un reloj atrasado)';
 
 -- asignaturas: 5 fila(s)
 INSERT IGNORE INTO asignaturas (id, nombre, icono, color, tiene_tutor, orden) VALUES

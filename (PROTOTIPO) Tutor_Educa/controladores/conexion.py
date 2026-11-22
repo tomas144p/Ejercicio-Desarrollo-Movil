@@ -66,6 +66,12 @@ class ConexionApp:
         self.sincronizando = False
         self.notificador.mostrar(f"No se pudo sincronizar: {error}", "error")
 
+    def datos_modificados(self) -> None:
+        """Después de una gestión de cuentas (el servicio ya descargó los datos nuevos): vuelve a dibujar la pantalla."""
+        self.pendientes = self.local.cantidad_pendientes()
+        self.datos.invalidar()
+        self._refrescar_pantalla()
+
     def _refrescar_pantalla(self) -> None:
         pantalla = self.gestor.current_screen
         if pantalla is not None and (self.usuario is not None or pantalla.name == "ingreso"):

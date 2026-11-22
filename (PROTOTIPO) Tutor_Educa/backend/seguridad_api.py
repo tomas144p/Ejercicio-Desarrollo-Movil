@@ -37,17 +37,17 @@ class ServicioTokens:
         self.dias_renovacion = dias_renovacion
         self._reloj = reloj
 
-    def _crear(self, usuario_id: int, rol: str, tipo: str, segundos: int) -> str:
+    def _crear(self, usuario_id: int, rol: str, colegio_id: int | None, tipo: str, segundos: int) -> str:
         ahora = int(self._reloj())
-        carga = {"sub": str(usuario_id), "rol": rol, "typ": tipo, "iat": ahora, "exp": ahora + segundos,
-                 "jti": uuid.uuid4().hex}
+        carga = {"sub": str(usuario_id), "rol": rol, "col": colegio_id, "typ": tipo, "iat": ahora,
+                 "exp": ahora + segundos, "jti": uuid.uuid4().hex}
         return jwt.encode(carga, self._secreto, algorithm=self.ALGORITMO)
 
-    def crear_acceso(self, usuario_id: int, rol: str) -> str:
-        return self._crear(usuario_id, rol, "acceso", self.minutos_acceso * 60)
+    def crear_acceso(self, usuario_id: int, rol: str, colegio_id: int | None = None) -> str:
+        return self._crear(usuario_id, rol, colegio_id, "acceso", self.minutos_acceso * 60)
 
-    def crear_renovacion(self, usuario_id: int, rol: str) -> str:
-        return self._crear(usuario_id, rol, "renovacion", self.dias_renovacion * 86400)
+    def crear_renovacion(self, usuario_id: int, rol: str, colegio_id: int | None = None) -> str:
+        return self._crear(usuario_id, rol, colegio_id, "renovacion", self.dias_renovacion * 86400)
 
     def leer(self, token: str, tipo: str) -> dict:
         """Devuelve los datos del token o lanza ``TokenInvalido``."""

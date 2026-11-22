@@ -1,6 +1,6 @@
 -- ===============================================================
 -- Tutor Educa: base de datos para MySQL / MariaDB (phpMyAdmin)
--- Generado el 06-11-2026 con herramientas/generar_sql_mysql.py
+-- Generado el 21-11-2026 con herramientas/generar_sql_mysql.py
 --
 -- Cómo importarlo: phpMyAdmin > Importar > elegir este archivo > Importar.
 -- Crea la base 'tutor_educa'. Si se importa otra vez, borra y recrea las tablas.
@@ -13,6 +13,11 @@ SET FOREIGN_KEY_CHECKS = 0;
 CREATE DATABASE IF NOT EXISTS tutor_educa CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE tutor_educa;
 
+DROP TABLE IF EXISTS estado_servidor;
+DROP TABLE IF EXISTS errores_app;
+DROP TABLE IF EXISTS eventos;
+DROP TABLE IF EXISTS asistencia;
+DROP TABLE IF EXISTS asistencia_dias;
 DROP TABLE IF EXISTS avisos_leidos;
 DROP TABLE IF EXISTS avisos;
 DROP TABLE IF EXISTS intentos;
@@ -24,17 +29,40 @@ DROP TABLE IF EXISTS calificaciones;
 DROP TABLE IF EXISTS asignaturas;
 DROP TABLE IF EXISTS estudiantes;
 DROP TABLE IF EXISTS cursos;
+DROP TABLE IF EXISTS invitaciones;
 DROP TABLE IF EXISTS usuarios;
+DROP TABLE IF EXISTS colegios;
+
+CREATE TABLE IF NOT EXISTS colegios (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(120) NOT NULL UNIQUE,
+  activo INT NOT NULL DEFAULT 1,
+  creado_en DATETIME
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Cada colegio es un espacio separado: sus cursos, docentes, estudiantes y apoderados no se mezclan';
 
 CREATE TABLE IF NOT EXISTS usuarios (
   id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   correo VARCHAR(120) NOT NULL UNIQUE,
   nombre VARCHAR(120) NOT NULL,
-  rol ENUM('estudiante', 'docente', 'apoderado') NOT NULL,
+  rol ENUM('estudiante', 'docente', 'apoderado', 'admin', 'superadmin') NOT NULL,
   clave_hash VARCHAR(200) NOT NULL,
   activo INT NOT NULL DEFAULT 1,
-  creado_en DATETIME
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Cuentas de ingreso. El rol define la pantalla de inicio';
+  creado_en DATETIME,
+  colegio_id INT,
+  FOREIGN KEY (colegio_id) REFERENCES colegios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Cuentas de ingreso. El rol define la pantalla de inicio; colegio_id, a qué colegio pertenece';
+
+CREATE TABLE IF NOT EXISTS invitaciones (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  usuario_id INT NOT NULL,
+  codigo_hash VARCHAR(64) NOT NULL UNIQUE,
+  creada_por INT,
+  creado_en DATETIME,
+  vence_en DATETIME NOT NULL,
+  usada_en DATETIME,
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
+  FOREIGN KEY (creada_por) REFERENCES usuarios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Códigos de un solo uso para activar una cuenta o cambiar la contraseña; solo se guarda su huella';
 
 CREATE TABLE IF NOT EXISTS cursos (
   id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -42,8 +70,11 @@ CREATE TABLE IF NOT EXISTS cursos (
   nivel VARCHAR(40) NOT NULL,
   docente_id INT NOT NULL,
   anio INT NOT NULL DEFAULT 2026,
-  FOREIGN KEY (docente_id) REFERENCES usuarios(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Cursos y su docente a cargo';
+  colegio_id INT NOT NULL,
+  clases_sabado INT NOT NULL DEFAULT 0,
+  FOREIGN KEY (docente_id) REFERENCES usuarios(id),
+  FOREIGN KEY (colegio_id) REFERENCES colegios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Cursos, su docente a cargo y el colegio al que pertenecen. clases_sabado: 1 si el curso tiene clases los sábados';
 
 CREATE TABLE IF NOT EXISTS estudiantes (
   usuario_id INT NOT NULL PRIMARY KEY,
@@ -170,24 +201,91 @@ CREATE TABLE IF NOT EXISTS avisos_leidos (
   FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Qué apoderado leyó cada aviso';
 
+CREATE TABLE IF NOT EXISTS asistencia_dias (
+  curso_id INT NOT NULL,
+  fecha DATE NOT NULL,
+  registrado_por INT,
+  registrado_en DATETIME,
+  PRIMARY KEY (curso_id, fecha),
+  FOREIGN KEY (curso_id) REFERENCES cursos(id) ON DELETE CASCADE,
+  FOREIGN KEY (registrado_por) REFERENCES usuarios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Días en que se pasó lista en cada curso. Un día sin fila aquí no cuenta para la asistencia';
+
+CREATE TABLE IF NOT EXISTS asistencia (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  estudiante_id INT NOT NULL,
+  fecha DATE NOT NULL,
+  estado ENUM('ausente', 'justificado') NOT NULL,
+  registrado_por INT,
+  registrado_en DATETIME,
+  UNIQUE (estudiante_id, fecha),
+  FOREIGN KEY (estudiante_id) REFERENCES estudiantes(usuario_id) ON DELETE CASCADE,
+  FOREIGN KEY (registrado_por) REFERENCES usuarios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Solo las excepciones: quién faltó ese día. En un día con lista, quien no aparece aquí estuvo presente';
+
+CREATE TABLE IF NOT EXISTS eventos (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  codigo VARCHAR(40) NOT NULL UNIQUE,
+  colegio_id INT NOT NULL,
+  curso_id INT,
+  titulo VARCHAR(120) NOT NULL,
+  descripcion TEXT,
+  tipo ENUM('feriado', 'sin_clases', 'celebracion', 'evaluacion', 'reunion', 'otro') NOT NULL DEFAULT 'otro',
+  fecha_inicio DATE NOT NULL,
+  fecha_fin DATE NOT NULL,
+  hay_clases INT NOT NULL DEFAULT 1,
+  creado_por INT,
+  creado_en DATETIME,
+  activo INT NOT NULL DEFAULT 1,
+  FOREIGN KEY (colegio_id) REFERENCES colegios(id),
+  FOREIGN KEY (curso_id) REFERENCES cursos(id) ON DELETE CASCADE,
+  FOREIGN KEY (creado_por) REFERENCES usuarios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Eventos y feriados. curso_id NULL = todo el colegio. Un evento con hay_clases=0 no permite pasar lista';
+
+CREATE TABLE IF NOT EXISTS errores_app (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  codigo VARCHAR(40) NOT NULL UNIQUE,
+  colegio_id INT,
+  rol VARCHAR(20),
+  creado_en DATETIME NOT NULL,
+  recibido_en DATETIME NOT NULL,
+  version VARCHAR(20),
+  plataforma VARCHAR(20),
+  pantalla VARCHAR(40),
+  tipo VARCHAR(80) NOT NULL,
+  mensaje TEXT,
+  traza TEXT,
+  huella VARCHAR(16) NOT NULL,
+  FOREIGN KEY (colegio_id) REFERENCES colegios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Errores y cierres inesperados de la app. Sin datos personales: solo colegio, perfil y causa';
+
+CREATE TABLE IF NOT EXISTS estado_servidor (
+  clave VARCHAR(40) NOT NULL PRIMARY KEY,
+  valor VARCHAR(80)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Valores internos del servidor. Hoy: la última hora que vio su reloj (para detectar un reloj atrasado)';
+
+-- colegios: 1 fila(s)
+INSERT INTO colegios (id, nombre, activo, creado_en) VALUES
+  (1, 'Colegio Demo', 1, '2026-09-22 10:00:00');
+
 -- usuarios: 12 fila(s)
-INSERT INTO usuarios (id, correo, nombre, rol, clave_hash, activo, creado_en) VALUES
-  (1, 'carolina.fuentes@tutoreduca.cl', 'Carolina Fuentes', 'docente', 'pbkdf2_sha256$120000$6e8474226ffc7cfb$5zrS6y2R3NrD4xCWtqazAG1/4+m1hj+t0gqoRCsB9d4', 1, '2026-09-07 10:00:00'),
-  (2, 'sofia.morales@tutoreduca.cl', 'Sofía Morales', 'estudiante', 'pbkdf2_sha256$120000$e6957b908e9af8db$2U9Z8dUWykQ/AFt7/Ux9UvN4DaiU2LRueubebioudEU', 1, '2026-09-07 10:00:00'),
-  (3, 'tomas.rojas@tutoreduca.cl', 'Tomás Rojas', 'estudiante', 'pbkdf2_sha256$120000$59125628350a41b6$N/SrnytHjJw60DXqqHSX1UR0WeBEyqjAZzEheElI2NQ', 1, '2026-09-07 10:00:00'),
-  (4, 'camila.perez@tutoreduca.cl', 'Camila Pérez', 'estudiante', 'pbkdf2_sha256$120000$e49f8f5e4862db9f$hbKfWkdyj7PP/5wJqDFGAqYNWBg8aNZhviiFj0ARF94', 1, '2026-09-07 10:00:00'),
-  (5, 'diego.soto@tutoreduca.cl', 'Diego Soto', 'estudiante', 'pbkdf2_sha256$120000$18ff5aa9bb93b87a$Ltm+jBbbHvj125ECXbfmpxHjuuYXOfpyJE7H/wcy3WQ', 1, '2026-09-07 10:00:00'),
-  (6, 'martina.diaz@tutoreduca.cl', 'Martina Díaz', 'estudiante', 'pbkdf2_sha256$120000$7d041114857dee74$Q+XEqMARZO1z4MZbyCrzjO6oKwlf9SJG9C5PXmbPEBM', 1, '2026-09-07 10:00:00'),
-  (7, 'benjamin.munoz@tutoreduca.cl', 'Benjamín Muñoz', 'estudiante', 'pbkdf2_sha256$120000$ca10f261004635f8$7/QBJ0D1KgTvzU4Gpdniay6pTCJd0WQLC4mhd7cSa5A', 1, '2026-09-07 10:00:00'),
-  (8, 'isidora.vargas@tutoreduca.cl', 'Isidora Vargas', 'estudiante', 'pbkdf2_sha256$120000$cf15f34d49cc5858$5PwjfAwJWRMYcqVG10G71lWRkr8sNzDf5egLFuQB5vQ', 1, '2026-09-07 10:00:00'),
-  (9, 'matias.contreras@tutoreduca.cl', 'Matías Contreras', 'estudiante', 'pbkdf2_sha256$120000$1d6bdfa6b54cfabe$UGKqF6RDeJZsGLFnfAriJ99VY7uB/hJVjPgHvGyt2zw', 1, '2026-09-07 10:00:00'),
-  (10, 'andres.morales@tutoreduca.cl', 'Andrés Morales', 'apoderado', 'pbkdf2_sha256$120000$5fe8c1da5ddb92b0$Mb4nG4WRp73MPFaIVmPeEgj+AydZ0f9qlYqLzGj2WBU', 1, '2026-09-07 10:00:00'),
-  (11, 'rodrigo.perez@tutoreduca.cl', 'Rodrigo Pérez', 'apoderado', 'pbkdf2_sha256$120000$1f130dd76dcccbef$bGkr90TVr5WfMfcvXYs+5w5YSVDZ7Hdnn85f1dti8Ag', 1, '2026-09-07 10:00:00'),
-  (12, 'carmen.soto@tutoreduca.cl', 'Carmen Soto', 'apoderado', 'pbkdf2_sha256$120000$c25a04e3284a939c$KhFTOupmN686LVjd20juQGK81JzzbUnvHC7LtT3kvtA', 1, '2026-09-07 10:00:00');
+INSERT INTO usuarios (id, correo, nombre, rol, clave_hash, activo, creado_en, colegio_id) VALUES
+  (1, 'carolina.fuentes@tutoreduca.cl', 'Carolina Fuentes', 'docente', 'pbkdf2_sha256$120000$c9efee3a15a0e799$nSbJYH0imfuGXmdDlvgLOIozq06RVoOlXgpTIKXPKHg', 1, '2026-09-22 10:00:00', 1),
+  (2, 'sofia.morales@tutoreduca.cl', 'Sofía Morales', 'estudiante', 'pbkdf2_sha256$120000$18bbc787bef64e07$bCh+cXxtUZx+DOz+ftodohdmzxv6QesqfUy8wPs4Eeg', 1, '2026-09-22 10:00:00', 1),
+  (3, 'tomas.rojas@tutoreduca.cl', 'Tomás Rojas', 'estudiante', 'pbkdf2_sha256$120000$591af540da72118f$hcrTz+b9Aq2VrkJgheEXL+uPood6eE7DfL/PoAYoTdk', 1, '2026-09-22 10:00:00', 1),
+  (4, 'camila.perez@tutoreduca.cl', 'Camila Pérez', 'estudiante', 'pbkdf2_sha256$120000$faac2e4dbd18b089$XTrm0Xo5ufn12pHLTPrRyd0QEew6vkqf4KMoMvjbbgY', 1, '2026-09-22 10:00:00', 1),
+  (5, 'diego.soto@tutoreduca.cl', 'Diego Soto', 'estudiante', 'pbkdf2_sha256$120000$d090d7a7500db3c0$9ZQlRN9Sq7k4fuQ89LyUMUj0Q9mnuWy5EJmCU0P24ww', 1, '2026-09-22 10:00:00', 1),
+  (6, 'martina.diaz@tutoreduca.cl', 'Martina Díaz', 'estudiante', 'pbkdf2_sha256$120000$caace5a658514749$ASg+cv2lEJZOoIcUHV9Plr2LcQj4YrqeMJD7HkdRyiU', 1, '2026-09-22 10:00:00', 1),
+  (7, 'benjamin.munoz@tutoreduca.cl', 'Benjamín Muñoz', 'estudiante', 'pbkdf2_sha256$120000$c32f384a1d910a4f$tQROJwbordNXUA+7vQse4CwxviXQVHNO1r0pW1koJt4', 1, '2026-09-22 10:00:00', 1),
+  (8, 'isidora.vargas@tutoreduca.cl', 'Isidora Vargas', 'estudiante', 'pbkdf2_sha256$120000$2c901c52b046bcb7$Er+4aTw6DEichaJMxZsiKR4TnM0TV/tQ3Cps1AJPIE4', 1, '2026-09-22 10:00:00', 1),
+  (9, 'matias.contreras@tutoreduca.cl', 'Matías Contreras', 'estudiante', 'pbkdf2_sha256$120000$27af2d6af72edda0$HsX2ZqeBlQ3peO0FMgk/vfWv22lpjblbo662y2t6Gog', 1, '2026-09-22 10:00:00', 1),
+  (10, 'andres.morales@tutoreduca.cl', 'Andrés Morales', 'apoderado', 'pbkdf2_sha256$120000$47bc26a473c9c520$nwh8ZKnD8Ckuh9bbfP1hCqI0He+xQv4MqibiejnZHmc', 1, '2026-09-22 10:00:00', 1),
+  (11, 'rodrigo.perez@tutoreduca.cl', 'Rodrigo Pérez', 'apoderado', 'pbkdf2_sha256$120000$f09b42d678a4b752$ExKueS/Oo3SWi1nuCMmsiIBPK6AafQ2oS8Z43rzIaJk', 1, '2026-09-22 10:00:00', 1),
+  (12, 'carmen.soto@tutoreduca.cl', 'Carmen Soto', 'apoderado', 'pbkdf2_sha256$120000$a96ae5668eec22c7$kHRGEy6J2qyLSe7nAZefSulY+nXMXcMT7Zi8tIRNWMM', 1, '2026-09-22 10:00:00', 1);
 
 -- cursos: 1 fila(s)
-INSERT INTO cursos (id, nombre, nivel, docente_id, anio) VALUES
-  (1, '7° Básico B', '7° básico', 1, 2026);
+INSERT INTO cursos (id, nombre, nivel, docente_id, anio, colegio_id) VALUES
+  (1, '7° Básico B', '7° básico', 1, 2026, 1);
 
 -- estudiantes: 8 fila(s)
 INSERT INTO estudiantes (usuario_id, curso_id, apoderado_id, asistencia) VALUES
@@ -210,126 +308,126 @@ INSERT INTO asignaturas (id, nombre, icono, color, tiene_tutor, orden) VALUES
 
 -- calificaciones: 120 fila(s)
 INSERT INTO calificaciones (id, estudiante_id, asignatura_id, nota, descripcion, fecha) VALUES
-  (1, 2, 'mat', 5.0, 'Evaluación 1', '2026-09-22'),
-  (2, 2, 'mat', 4.8, 'Evaluación 2', '2026-10-17'),
-  (3, 2, 'mat', 5.6, 'Evaluación 3', '2026-11-11'),
-  (4, 2, 'len', 6.2, 'Evaluación 1', '2026-09-22'),
-  (5, 2, 'len', 6.5, 'Evaluación 2', '2026-10-17'),
-  (6, 2, 'len', 6.0, 'Evaluación 3', '2026-11-11'),
-  (7, 2, 'cie', 5.9, 'Evaluación 1', '2026-09-22'),
-  (8, 2, 'cie', 6.3, 'Evaluación 2', '2026-10-17'),
-  (9, 2, 'cie', 6.1, 'Evaluación 3', '2026-11-11'),
-  (10, 2, 'his', 6.8, 'Evaluación 1', '2026-09-22'),
-  (11, 2, 'his', 6.6, 'Evaluación 2', '2026-10-17'),
-  (12, 2, 'his', 7.0, 'Evaluación 3', '2026-11-11'),
-  (13, 2, 'ing', 6.0, 'Evaluación 1', '2026-09-22'),
-  (14, 2, 'ing', 5.5, 'Evaluación 2', '2026-10-17'),
-  (15, 2, 'ing', 6.2, 'Evaluación 3', '2026-11-11'),
-  (16, 3, 'mat', 6.1, 'Evaluación 1', '2026-09-22'),
-  (17, 3, 'mat', 5.8, 'Evaluación 2', '2026-10-17'),
-  (18, 3, 'mat', 6.4, 'Evaluación 3', '2026-11-11'),
-  (19, 3, 'len', 5.5, 'Evaluación 1', '2026-09-22'),
-  (20, 3, 'len', 5.9, 'Evaluación 2', '2026-10-17'),
-  (21, 3, 'len', 6.0, 'Evaluación 3', '2026-11-11'),
-  (22, 3, 'cie', 5.2, 'Evaluación 1', '2026-09-22'),
-  (23, 3, 'cie', 5.0, 'Evaluación 2', '2026-10-17'),
-  (24, 3, 'cie', 5.6, 'Evaluación 3', '2026-11-11'),
-  (25, 3, 'his', 6.0, 'Evaluación 1', '2026-09-22'),
-  (26, 3, 'his', 6.3, 'Evaluación 2', '2026-10-17'),
-  (27, 3, 'his', 5.8, 'Evaluación 3', '2026-11-11'),
-  (28, 3, 'ing', 5.8, 'Evaluación 1', '2026-09-22'),
-  (29, 3, 'ing', 6.1, 'Evaluación 2', '2026-10-17'),
-  (30, 3, 'ing', 5.5, 'Evaluación 3', '2026-11-11'),
-  (31, 4, 'mat', 3.8, 'Evaluación 1', '2026-09-22'),
-  (32, 4, 'mat', 4.2, 'Evaluación 2', '2026-10-17'),
-  (33, 4, 'mat', 4.4, 'Evaluación 3', '2026-11-11'),
-  (34, 4, 'len', 5.6, 'Evaluación 1', '2026-09-22'),
-  (35, 4, 'len', 6.0, 'Evaluación 2', '2026-10-17'),
-  (36, 4, 'len', 5.8, 'Evaluación 3', '2026-11-11'),
-  (37, 4, 'cie', 4.9, 'Evaluación 1', '2026-09-22'),
-  (38, 4, 'cie', 5.3, 'Evaluación 2', '2026-10-17'),
-  (39, 4, 'cie', 5.1, 'Evaluación 3', '2026-11-11'),
-  (40, 4, 'his', 5.5, 'Evaluación 1', '2026-09-22'),
-  (41, 4, 'his', 5.9, 'Evaluación 2', '2026-10-17'),
-  (42, 4, 'his', 6.1, 'Evaluación 3', '2026-11-11'),
-  (43, 4, 'ing', 4.8, 'Evaluación 1', '2026-09-22'),
-  (44, 4, 'ing', 5.2, 'Evaluación 2', '2026-10-17'),
-  (45, 4, 'ing', 5.0, 'Evaluación 3', '2026-11-11'),
-  (46, 5, 'mat', 4.5, 'Evaluación 1', '2026-09-22'),
-  (47, 5, 'mat', 5.0, 'Evaluación 2', '2026-10-17'),
-  (48, 5, 'mat', 4.6, 'Evaluación 3', '2026-11-11'),
-  (49, 5, 'len', 6.3, 'Evaluación 1', '2026-09-22'),
-  (50, 5, 'len', 6.0, 'Evaluación 2', '2026-10-17'),
-  (51, 5, 'len', 6.6, 'Evaluación 3', '2026-11-11'),
-  (52, 5, 'cie', 6.0, 'Evaluación 1', '2026-09-22'),
-  (53, 5, 'cie', 5.8, 'Evaluación 2', '2026-10-17'),
-  (54, 5, 'cie', 6.4, 'Evaluación 3', '2026-11-11'),
-  (55, 5, 'his', 6.9, 'Evaluación 1', '2026-09-22'),
-  (56, 5, 'his', 6.7, 'Evaluación 2', '2026-10-17'),
-  (57, 5, 'his', 6.8, 'Evaluación 3', '2026-11-11'),
-  (58, 5, 'ing', 5.9, 'Evaluación 1', '2026-09-22'),
-  (59, 5, 'ing', 6.2, 'Evaluación 2', '2026-10-17'),
-  (60, 5, 'ing', 6.0, 'Evaluación 3', '2026-11-11'),
-  (61, 6, 'mat', 6.8, 'Evaluación 1', '2026-09-22'),
-  (62, 6, 'mat', 6.5, 'Evaluación 2', '2026-10-17'),
-  (63, 6, 'mat', 7.0, 'Evaluación 3', '2026-11-11'),
-  (64, 6, 'len', 6.6, 'Evaluación 1', '2026-09-22'),
-  (65, 6, 'len', 6.9, 'Evaluación 2', '2026-10-17'),
-  (66, 6, 'len', 6.4, 'Evaluación 3', '2026-11-11'),
-  (67, 6, 'cie', 6.5, 'Evaluación 1', '2026-09-22'),
-  (68, 6, 'cie', 6.7, 'Evaluación 2', '2026-10-17'),
-  (69, 6, 'cie', 6.3, 'Evaluación 3', '2026-11-11'),
-  (70, 6, 'his', 6.2, 'Evaluación 1', '2026-09-22'),
-  (71, 6, 'his', 6.6, 'Evaluación 2', '2026-10-17'),
-  (72, 6, 'his', 6.4, 'Evaluación 3', '2026-11-11'),
-  (73, 6, 'ing', 6.9, 'Evaluación 1', '2026-09-22'),
-  (74, 6, 'ing', 7.0, 'Evaluación 2', '2026-10-17'),
-  (75, 6, 'ing', 6.7, 'Evaluación 3', '2026-11-11'),
-  (76, 7, 'mat', 5.4, 'Evaluación 1', '2026-09-22'),
-  (77, 7, 'mat', 5.8, 'Evaluación 2', '2026-10-17'),
-  (78, 7, 'mat', 5.5, 'Evaluación 3', '2026-11-11'),
-  (79, 7, 'len', 4.9, 'Evaluación 1', '2026-09-22'),
-  (80, 7, 'len', 5.3, 'Evaluación 2', '2026-10-17'),
-  (81, 7, 'len', 5.1, 'Evaluación 3', '2026-11-11'),
-  (82, 7, 'cie', 5.6, 'Evaluación 1', '2026-09-22'),
-  (83, 7, 'cie', 5.2, 'Evaluación 2', '2026-10-17'),
-  (84, 7, 'cie', 5.8, 'Evaluación 3', '2026-11-11'),
-  (85, 7, 'his', 5.0, 'Evaluación 1', '2026-09-22'),
-  (86, 7, 'his', 5.4, 'Evaluación 2', '2026-10-17'),
-  (87, 7, 'his', 5.7, 'Evaluación 3', '2026-11-11'),
-  (88, 7, 'ing', 4.6, 'Evaluación 1', '2026-09-22'),
-  (89, 7, 'ing', 5.0, 'Evaluación 2', '2026-10-17'),
-  (90, 7, 'ing', 5.3, 'Evaluación 3', '2026-11-11'),
-  (91, 8, 'mat', 5.9, 'Evaluación 1', '2026-09-22'),
-  (92, 8, 'mat', 6.2, 'Evaluación 2', '2026-10-17'),
-  (93, 8, 'mat', 6.0, 'Evaluación 3', '2026-11-11'),
-  (94, 8, 'len', 6.4, 'Evaluación 1', '2026-09-22'),
-  (95, 8, 'len', 6.1, 'Evaluación 2', '2026-10-17'),
-  (96, 8, 'len', 6.7, 'Evaluación 3', '2026-11-11'),
-  (97, 8, 'cie', 5.8, 'Evaluación 1', '2026-09-22'),
-  (98, 8, 'cie', 6.0, 'Evaluación 2', '2026-10-17'),
-  (99, 8, 'cie', 6.2, 'Evaluación 3', '2026-11-11'),
-  (100, 8, 'his', 6.5, 'Evaluación 1', '2026-09-22'),
-  (101, 8, 'his', 6.3, 'Evaluación 2', '2026-10-17'),
-  (102, 8, 'his', 6.1, 'Evaluación 3', '2026-11-11'),
-  (103, 8, 'ing', 6.2, 'Evaluación 1', '2026-09-22'),
-  (104, 8, 'ing', 6.4, 'Evaluación 2', '2026-10-17'),
-  (105, 8, 'ing', 6.6, 'Evaluación 3', '2026-11-11'),
-  (106, 9, 'mat', 4.0, 'Evaluación 1', '2026-09-22'),
-  (107, 9, 'mat', 3.6, 'Evaluación 2', '2026-10-17'),
-  (108, 9, 'mat', 4.5, 'Evaluación 3', '2026-11-11'),
-  (109, 9, 'len', 5.0, 'Evaluación 1', '2026-09-22'),
-  (110, 9, 'len', 4.6, 'Evaluación 2', '2026-10-17'),
-  (111, 9, 'len', 5.2, 'Evaluación 3', '2026-11-11'),
-  (112, 9, 'cie', 4.8, 'Evaluación 1', '2026-09-22'),
-  (113, 9, 'cie', 5.0, 'Evaluación 2', '2026-10-17'),
-  (114, 9, 'cie', 4.4, 'Evaluación 3', '2026-11-11'),
-  (115, 9, 'his', 5.3, 'Evaluación 1', '2026-09-22'),
-  (116, 9, 'his', 5.6, 'Evaluación 2', '2026-10-17'),
-  (117, 9, 'his', 5.0, 'Evaluación 3', '2026-11-11'),
-  (118, 9, 'ing', 4.3, 'Evaluación 1', '2026-09-22'),
-  (119, 9, 'ing', 4.9, 'Evaluación 2', '2026-10-17'),
-  (120, 9, 'ing', 4.7, 'Evaluación 3', '2026-11-11');
+  (1, 2, 'mat', 5.0, 'Evaluación 1', '2026-10-07'),
+  (2, 2, 'mat', 4.8, 'Evaluación 2', '2026-11-01'),
+  (3, 2, 'mat', 5.6, 'Evaluación 3', '2026-11-26'),
+  (4, 2, 'len', 6.2, 'Evaluación 1', '2026-10-07'),
+  (5, 2, 'len', 6.5, 'Evaluación 2', '2026-11-01'),
+  (6, 2, 'len', 6.0, 'Evaluación 3', '2026-11-26'),
+  (7, 2, 'cie', 5.9, 'Evaluación 1', '2026-10-07'),
+  (8, 2, 'cie', 6.3, 'Evaluación 2', '2026-11-01'),
+  (9, 2, 'cie', 6.1, 'Evaluación 3', '2026-11-26'),
+  (10, 2, 'his', 6.8, 'Evaluación 1', '2026-10-07'),
+  (11, 2, 'his', 6.6, 'Evaluación 2', '2026-11-01'),
+  (12, 2, 'his', 7.0, 'Evaluación 3', '2026-11-26'),
+  (13, 2, 'ing', 6.0, 'Evaluación 1', '2026-10-07'),
+  (14, 2, 'ing', 5.5, 'Evaluación 2', '2026-11-01'),
+  (15, 2, 'ing', 6.2, 'Evaluación 3', '2026-11-26'),
+  (16, 3, 'mat', 6.1, 'Evaluación 1', '2026-10-07'),
+  (17, 3, 'mat', 5.8, 'Evaluación 2', '2026-11-01'),
+  (18, 3, 'mat', 6.4, 'Evaluación 3', '2026-11-26'),
+  (19, 3, 'len', 5.5, 'Evaluación 1', '2026-10-07'),
+  (20, 3, 'len', 5.9, 'Evaluación 2', '2026-11-01'),
+  (21, 3, 'len', 6.0, 'Evaluación 3', '2026-11-26'),
+  (22, 3, 'cie', 5.2, 'Evaluación 1', '2026-10-07'),
+  (23, 3, 'cie', 5.0, 'Evaluación 2', '2026-11-01'),
+  (24, 3, 'cie', 5.6, 'Evaluación 3', '2026-11-26'),
+  (25, 3, 'his', 6.0, 'Evaluación 1', '2026-10-07'),
+  (26, 3, 'his', 6.3, 'Evaluación 2', '2026-11-01'),
+  (27, 3, 'his', 5.8, 'Evaluación 3', '2026-11-26'),
+  (28, 3, 'ing', 5.8, 'Evaluación 1', '2026-10-07'),
+  (29, 3, 'ing', 6.1, 'Evaluación 2', '2026-11-01'),
+  (30, 3, 'ing', 5.5, 'Evaluación 3', '2026-11-26'),
+  (31, 4, 'mat', 3.8, 'Evaluación 1', '2026-10-07'),
+  (32, 4, 'mat', 4.2, 'Evaluación 2', '2026-11-01'),
+  (33, 4, 'mat', 4.4, 'Evaluación 3', '2026-11-26'),
+  (34, 4, 'len', 5.6, 'Evaluación 1', '2026-10-07'),
+  (35, 4, 'len', 6.0, 'Evaluación 2', '2026-11-01'),
+  (36, 4, 'len', 5.8, 'Evaluación 3', '2026-11-26'),
+  (37, 4, 'cie', 4.9, 'Evaluación 1', '2026-10-07'),
+  (38, 4, 'cie', 5.3, 'Evaluación 2', '2026-11-01'),
+  (39, 4, 'cie', 5.1, 'Evaluación 3', '2026-11-26'),
+  (40, 4, 'his', 5.5, 'Evaluación 1', '2026-10-07'),
+  (41, 4, 'his', 5.9, 'Evaluación 2', '2026-11-01'),
+  (42, 4, 'his', 6.1, 'Evaluación 3', '2026-11-26'),
+  (43, 4, 'ing', 4.8, 'Evaluación 1', '2026-10-07'),
+  (44, 4, 'ing', 5.2, 'Evaluación 2', '2026-11-01'),
+  (45, 4, 'ing', 5.0, 'Evaluación 3', '2026-11-26'),
+  (46, 5, 'mat', 4.5, 'Evaluación 1', '2026-10-07'),
+  (47, 5, 'mat', 5.0, 'Evaluación 2', '2026-11-01'),
+  (48, 5, 'mat', 4.6, 'Evaluación 3', '2026-11-26'),
+  (49, 5, 'len', 6.3, 'Evaluación 1', '2026-10-07'),
+  (50, 5, 'len', 6.0, 'Evaluación 2', '2026-11-01'),
+  (51, 5, 'len', 6.6, 'Evaluación 3', '2026-11-26'),
+  (52, 5, 'cie', 6.0, 'Evaluación 1', '2026-10-07'),
+  (53, 5, 'cie', 5.8, 'Evaluación 2', '2026-11-01'),
+  (54, 5, 'cie', 6.4, 'Evaluación 3', '2026-11-26'),
+  (55, 5, 'his', 6.9, 'Evaluación 1', '2026-10-07'),
+  (56, 5, 'his', 6.7, 'Evaluación 2', '2026-11-01'),
+  (57, 5, 'his', 6.8, 'Evaluación 3', '2026-11-26'),
+  (58, 5, 'ing', 5.9, 'Evaluación 1', '2026-10-07'),
+  (59, 5, 'ing', 6.2, 'Evaluación 2', '2026-11-01'),
+  (60, 5, 'ing', 6.0, 'Evaluación 3', '2026-11-26'),
+  (61, 6, 'mat', 6.8, 'Evaluación 1', '2026-10-07'),
+  (62, 6, 'mat', 6.5, 'Evaluación 2', '2026-11-01'),
+  (63, 6, 'mat', 7.0, 'Evaluación 3', '2026-11-26'),
+  (64, 6, 'len', 6.6, 'Evaluación 1', '2026-10-07'),
+  (65, 6, 'len', 6.9, 'Evaluación 2', '2026-11-01'),
+  (66, 6, 'len', 6.4, 'Evaluación 3', '2026-11-26'),
+  (67, 6, 'cie', 6.5, 'Evaluación 1', '2026-10-07'),
+  (68, 6, 'cie', 6.7, 'Evaluación 2', '2026-11-01'),
+  (69, 6, 'cie', 6.3, 'Evaluación 3', '2026-11-26'),
+  (70, 6, 'his', 6.2, 'Evaluación 1', '2026-10-07'),
+  (71, 6, 'his', 6.6, 'Evaluación 2', '2026-11-01'),
+  (72, 6, 'his', 6.4, 'Evaluación 3', '2026-11-26'),
+  (73, 6, 'ing', 6.9, 'Evaluación 1', '2026-10-07'),
+  (74, 6, 'ing', 7.0, 'Evaluación 2', '2026-11-01'),
+  (75, 6, 'ing', 6.7, 'Evaluación 3', '2026-11-26'),
+  (76, 7, 'mat', 5.4, 'Evaluación 1', '2026-10-07'),
+  (77, 7, 'mat', 5.8, 'Evaluación 2', '2026-11-01'),
+  (78, 7, 'mat', 5.5, 'Evaluación 3', '2026-11-26'),
+  (79, 7, 'len', 4.9, 'Evaluación 1', '2026-10-07'),
+  (80, 7, 'len', 5.3, 'Evaluación 2', '2026-11-01'),
+  (81, 7, 'len', 5.1, 'Evaluación 3', '2026-11-26'),
+  (82, 7, 'cie', 5.6, 'Evaluación 1', '2026-10-07'),
+  (83, 7, 'cie', 5.2, 'Evaluación 2', '2026-11-01'),
+  (84, 7, 'cie', 5.8, 'Evaluación 3', '2026-11-26'),
+  (85, 7, 'his', 5.0, 'Evaluación 1', '2026-10-07'),
+  (86, 7, 'his', 5.4, 'Evaluación 2', '2026-11-01'),
+  (87, 7, 'his', 5.7, 'Evaluación 3', '2026-11-26'),
+  (88, 7, 'ing', 4.6, 'Evaluación 1', '2026-10-07'),
+  (89, 7, 'ing', 5.0, 'Evaluación 2', '2026-11-01'),
+  (90, 7, 'ing', 5.3, 'Evaluación 3', '2026-11-26'),
+  (91, 8, 'mat', 5.9, 'Evaluación 1', '2026-10-07'),
+  (92, 8, 'mat', 6.2, 'Evaluación 2', '2026-11-01'),
+  (93, 8, 'mat', 6.0, 'Evaluación 3', '2026-11-26'),
+  (94, 8, 'len', 6.4, 'Evaluación 1', '2026-10-07'),
+  (95, 8, 'len', 6.1, 'Evaluación 2', '2026-11-01'),
+  (96, 8, 'len', 6.7, 'Evaluación 3', '2026-11-26'),
+  (97, 8, 'cie', 5.8, 'Evaluación 1', '2026-10-07'),
+  (98, 8, 'cie', 6.0, 'Evaluación 2', '2026-11-01'),
+  (99, 8, 'cie', 6.2, 'Evaluación 3', '2026-11-26'),
+  (100, 8, 'his', 6.5, 'Evaluación 1', '2026-10-07'),
+  (101, 8, 'his', 6.3, 'Evaluación 2', '2026-11-01'),
+  (102, 8, 'his', 6.1, 'Evaluación 3', '2026-11-26'),
+  (103, 8, 'ing', 6.2, 'Evaluación 1', '2026-10-07'),
+  (104, 8, 'ing', 6.4, 'Evaluación 2', '2026-11-01'),
+  (105, 8, 'ing', 6.6, 'Evaluación 3', '2026-11-26'),
+  (106, 9, 'mat', 4.0, 'Evaluación 1', '2026-10-07'),
+  (107, 9, 'mat', 3.6, 'Evaluación 2', '2026-11-01'),
+  (108, 9, 'mat', 4.5, 'Evaluación 3', '2026-11-26'),
+  (109, 9, 'len', 5.0, 'Evaluación 1', '2026-10-07'),
+  (110, 9, 'len', 4.6, 'Evaluación 2', '2026-11-01'),
+  (111, 9, 'len', 5.2, 'Evaluación 3', '2026-11-26'),
+  (112, 9, 'cie', 4.8, 'Evaluación 1', '2026-10-07'),
+  (113, 9, 'cie', 5.0, 'Evaluación 2', '2026-11-01'),
+  (114, 9, 'cie', 4.4, 'Evaluación 3', '2026-11-26'),
+  (115, 9, 'his', 5.3, 'Evaluación 1', '2026-10-07'),
+  (116, 9, 'his', 5.6, 'Evaluación 2', '2026-11-01'),
+  (117, 9, 'his', 5.0, 'Evaluación 3', '2026-11-26'),
+  (118, 9, 'ing', 4.3, 'Evaluación 1', '2026-10-07'),
+  (119, 9, 'ing', 4.9, 'Evaluación 2', '2026-11-01'),
+  (120, 9, 'ing', 4.7, 'Evaluación 3', '2026-11-26');
 
 -- temas: 7 fila(s)
 INSERT INTO temas (id, asignatura_id, titulo, nivel, orden, icono, resumen, contenido, clave, error_comun, consejo_apoderado) VALUES
@@ -405,29 +503,103 @@ INSERT INTO preguntas (id, tema_id, orden, enunciado, tipo, alternativas, respue
 
 -- refuerzos: 7 fila(s)
 INSERT INTO refuerzos (id, estudiante_id, tema_id, estado, mensaje, desbloqueado_por, desbloqueado_en, actualizado_en, activo) VALUES
-  (1, 2, 'mat-ecuaciones', 'en_progreso', 'Sofía, repasa ecuaciones antes de la prueba del viernes. ¡Tú puedes!', 1, '2026-11-01 09:00:00', '2026-11-02 18:00:00', 1),
-  (2, 2, 'mat-fracciones', 'logrado', '', 1, '2026-10-17 09:00:00', '2026-10-18 18:00:00', 1),
-  (3, 4, 'mat-enteros', 'disponible', 'Camila, empieza por los ejemplos resueltos. Vas bien.', 1, '2026-11-04 09:00:00', '2026-11-05 18:00:00', 1),
-  (4, 4, 'mat-fracciones', 'en_progreso', '', 1, '2026-10-25 09:00:00', '2026-10-26 18:00:00', 1),
-  (5, 5, 'mat-porcentajes', 'disponible', '', 1, '2026-11-03 09:00:00', '2026-11-04 18:00:00', 1),
-  (6, 9, 'mat-ecuaciones', 'disponible', 'Matías, mira los ejemplos antes de la prueba del viernes.', 1, '2026-11-05 09:00:00', '2026-11-06 18:00:00', 1),
-  (7, 9, 'mat-enteros', 'en_progreso', '', 1, '2026-10-28 09:00:00', '2026-10-29 18:00:00', 1);
+  (1, 2, 'mat-ecuaciones', 'en_progreso', 'Sofía, repasa ecuaciones antes de la prueba del viernes. ¡Tú puedes!', 1, '2026-11-16 09:00:00', '2026-11-17 18:00:00', 1),
+  (2, 2, 'mat-fracciones', 'logrado', '', 1, '2026-11-01 09:00:00', '2026-11-02 18:00:00', 1),
+  (3, 4, 'mat-enteros', 'disponible', 'Camila, empieza por los ejemplos resueltos. Vas bien.', 1, '2026-11-19 09:00:00', '2026-11-20 18:00:00', 1),
+  (4, 4, 'mat-fracciones', 'en_progreso', '', 1, '2026-11-09 09:00:00', '2026-11-10 18:00:00', 1),
+  (5, 5, 'mat-porcentajes', 'disponible', '', 1, '2026-11-18 09:00:00', '2026-11-19 18:00:00', 1),
+  (6, 9, 'mat-ecuaciones', 'disponible', 'Matías, mira los ejemplos antes de la prueba del viernes.', 1, '2026-11-20 09:00:00', '2026-11-21 18:00:00', 1),
+  (7, 9, 'mat-enteros', 'en_progreso', '', 1, '2026-11-12 09:00:00', '2026-11-13 18:00:00', 1);
 
 -- intentos: 4 fila(s)
 INSERT INTO intentos (id, codigo, estudiante_id, tema_id, correctas, total, porcentaje, nota, realizado_en, origen) VALUES
-  (1, 'demo-intento-1', 2, 'mat-fracciones', 4, 5, 80, 5.5, '2026-10-22 19:00:00', 'app'),
-  (2, 'demo-intento-2', 2, 'mat-ecuaciones', 2, 5, 40, 3.0, '2026-11-04 19:00:00', 'app'),
-  (3, 'demo-intento-3', 4, 'mat-fracciones', 2, 5, 40, 3.0, '2026-10-29 19:00:00', 'app'),
-  (4, 'demo-intento-4', 9, 'mat-enteros', 2, 5, 40, 3.0, '2026-10-31 19:00:00', 'app');
+  (1, 'demo-intento-1', 2, 'mat-fracciones', 4, 5, 80, 5.5, '2026-11-06 19:00:00', 'app'),
+  (2, 'demo-intento-2', 2, 'mat-ecuaciones', 2, 5, 40, 3.0, '2026-11-19 19:00:00', 'app'),
+  (3, 'demo-intento-3', 4, 'mat-fracciones', 2, 5, 40, 3.0, '2026-11-13 19:00:00', 'app'),
+  (4, 'demo-intento-4', 9, 'mat-enteros', 2, 5, 40, 3.0, '2026-11-15 19:00:00', 'app');
 
 -- avisos: 3 fila(s)
 INSERT INTO avisos (id, codigo, curso_id, estudiante_id, autor_id, titulo, cuerpo, tipo, creado_en) VALUES
-  (1, 'demo-aviso-1', 1, NULL, 1, 'Prueba de ecuaciones el viernes 13 de noviembre', 'Estimadas familias: el viernes 13 de noviembre el 7° Básico B rendirá la prueba de ecuaciones de primer grado. En Tutor Educa dejé material de repaso desbloqueado para quienes lo necesitan. Les pido acompañar 15 minutos de estudio diario esta semana.', 'evaluacion', '2026-11-03 16:00:00'),
-  (2, 'demo-aviso-2', 1, 4, 1, 'Refuerzo de números enteros', 'Camila tiene disponible el tema Números enteros. Les sugiero practicar 15 minutos al día con ejemplos de temperaturas o pisos de un edificio. Cualquier duda, me escriben por la agenda.', 'refuerzo', '2026-11-04 12:00:00'),
-  (3, 'demo-aviso-3', 1, 2, 1, 'Sofía logró el tema de fracciones', 'Sofía obtuvo 80 % en la prueba de suma y resta de fracciones. Ahora le desbloqueé ecuaciones para reforzar antes de la evaluación. ¡Gracias por el apoyo en casa!', 'logro', '2026-11-05 11:00:00');
+  (1, 'demo-aviso-1', 1, NULL, 1, 'Prueba de ecuaciones el viernes 27 de noviembre', 'Estimadas familias: el viernes 27 de noviembre el 7° Básico B rendirá la prueba de ecuaciones de primer grado. En Tutor Educa dejé material de repaso desbloqueado para quienes lo necesitan. Les pido acompañar 15 minutos de estudio diario esta semana.', 'evaluacion', '2026-11-18 16:00:00'),
+  (2, 'demo-aviso-2', 1, 4, 1, 'Refuerzo de números enteros', 'Camila tiene disponible el tema Números enteros. Les sugiero practicar 15 minutos al día con ejemplos de temperaturas o pisos de un edificio. Cualquier duda, me escriben por la agenda.', 'refuerzo', '2026-11-19 12:00:00'),
+  (3, 'demo-aviso-3', 1, 2, 1, 'Sofía logró el tema de fracciones', 'Sofía obtuvo 80 % en la prueba de suma y resta de fracciones. Ahora le desbloqueé ecuaciones para reforzar antes de la evaluación. ¡Gracias por el apoyo en casa!', 'logro', '2026-11-20 11:00:00');
 
 -- avisos_leidos: 1 fila(s)
 INSERT INTO avisos_leidos (aviso_id, usuario_id, leido_en) VALUES
-  (1, 10, '2026-11-04 21:00:00');
+  (1, 10, '2026-11-19 21:00:00');
+
+-- asistencia_dias: 29 fila(s)
+INSERT INTO asistencia_dias (curso_id, fecha, registrado_por, registrado_en) VALUES
+  (1, '2026-10-13', 1, '2026-10-13 09:00:00'),
+  (1, '2026-10-14', 1, '2026-10-14 09:00:00'),
+  (1, '2026-10-15', 1, '2026-10-15 09:00:00'),
+  (1, '2026-10-16', 1, '2026-10-16 09:00:00'),
+  (1, '2026-10-19', 1, '2026-10-19 09:00:00'),
+  (1, '2026-10-20', 1, '2026-10-20 09:00:00'),
+  (1, '2026-10-21', 1, '2026-10-21 09:00:00'),
+  (1, '2026-10-22', 1, '2026-10-22 09:00:00'),
+  (1, '2026-10-23', 1, '2026-10-23 09:00:00'),
+  (1, '2026-10-26', 1, '2026-10-26 09:00:00'),
+  (1, '2026-10-27', 1, '2026-10-27 09:00:00'),
+  (1, '2026-10-28', 1, '2026-10-28 09:00:00'),
+  (1, '2026-10-29', 1, '2026-10-29 09:00:00'),
+  (1, '2026-10-30', 1, '2026-10-30 09:00:00'),
+  (1, '2026-11-02', 1, '2026-11-02 09:00:00'),
+  (1, '2026-11-03', 1, '2026-11-03 09:00:00'),
+  (1, '2026-11-04', 1, '2026-11-04 09:00:00'),
+  (1, '2026-11-05', 1, '2026-11-05 09:00:00'),
+  (1, '2026-11-06', 1, '2026-11-06 09:00:00'),
+  (1, '2026-11-09', 1, '2026-11-09 09:00:00'),
+  (1, '2026-11-10', 1, '2026-11-10 09:00:00'),
+  (1, '2026-11-11', 1, '2026-11-11 09:00:00'),
+  (1, '2026-11-12', 1, '2026-11-12 09:00:00'),
+  (1, '2026-11-13', 1, '2026-11-13 09:00:00'),
+  (1, '2026-11-16', 1, '2026-11-16 09:00:00'),
+  (1, '2026-11-17', 1, '2026-11-17 09:00:00'),
+  (1, '2026-11-18', 1, '2026-11-18 09:00:00'),
+  (1, '2026-11-19', 1, '2026-11-19 09:00:00'),
+  (1, '2026-11-20', 1, '2026-11-20 09:00:00');
+
+-- asistencia: 18 fila(s)
+INSERT INTO asistencia (id, estudiante_id, fecha, estado, registrado_por, registrado_en) VALUES
+  (1, 2, '2026-10-13', 'ausente', 1, '2026-10-13 09:00:00'),
+  (2, 3, '2026-10-22', 'ausente', 1, '2026-10-22 09:00:00'),
+  (3, 3, '2026-11-06', 'justificado', 1, '2026-11-06 09:00:00'),
+  (4, 4, '2026-10-22', 'ausente', 1, '2026-10-22 09:00:00'),
+  (5, 4, '2026-11-02', 'justificado', 1, '2026-11-02 09:00:00'),
+  (6, 4, '2026-11-17', 'ausente', 1, '2026-11-17 09:00:00'),
+  (7, 5, '2026-10-16', 'ausente', 1, '2026-10-16 09:00:00'),
+  (8, 5, '2026-11-11', 'justificado', 1, '2026-11-11 09:00:00'),
+  (9, 7, '2026-10-21', 'ausente', 1, '2026-10-21 09:00:00'),
+  (10, 7, '2026-11-05', 'justificado', 1, '2026-11-05 09:00:00'),
+  (11, 7, '2026-11-20', 'ausente', 1, '2026-11-20 09:00:00'),
+  (12, 8, '2026-10-30', 'ausente', 1, '2026-10-30 09:00:00'),
+  (13, 9, '2026-10-15', 'ausente', 1, '2026-10-15 09:00:00'),
+  (14, 9, '2026-10-30', 'justificado', 1, '2026-10-30 09:00:00'),
+  (15, 9, '2026-11-10', 'ausente', 1, '2026-11-10 09:00:00'),
+  (16, 9, '2026-11-18', 'justificado', 1, '2026-11-18 09:00:00'),
+  (17, 9, '2026-11-19', 'ausente', 1, '2026-11-19 09:00:00'),
+  (18, 9, '2026-11-20', 'justificado', 1, '2026-11-20 09:00:00');
+
+-- eventos: 18 fila(s)
+INSERT INTO eventos (id, codigo, colegio_id, curso_id, titulo, descripcion, tipo, fecha_inicio, fecha_fin, hay_clases, creado_por, creado_en, activo) VALUES
+  (1, 'feriado-cl-1-2026-01-01', 1, NULL, 'Año Nuevo', '', 'feriado', '2026-01-01', '2026-01-01', 0, 1, '2026-10-22 09:00:00', 1),
+  (2, 'feriado-cl-1-2026-04-03', 1, NULL, 'Viernes Santo', '', 'feriado', '2026-04-03', '2026-04-03', 0, 1, '2026-10-22 09:00:00', 1),
+  (3, 'feriado-cl-1-2026-04-04', 1, NULL, 'Sábado Santo', '', 'feriado', '2026-04-04', '2026-04-04', 0, 1, '2026-10-22 09:00:00', 1),
+  (4, 'feriado-cl-1-2026-05-01', 1, NULL, 'Día del Trabajo', '', 'feriado', '2026-05-01', '2026-05-01', 0, 1, '2026-10-22 09:00:00', 1),
+  (5, 'feriado-cl-1-2026-05-21', 1, NULL, 'Día de las Glorias Navales', '', 'feriado', '2026-05-21', '2026-05-21', 0, 1, '2026-10-22 09:00:00', 1),
+  (6, 'feriado-cl-1-2026-06-21', 1, NULL, 'Día Nacional de los Pueblos Indígenas', '', 'feriado', '2026-06-21', '2026-06-21', 0, 1, '2026-10-22 09:00:00', 1),
+  (7, 'feriado-cl-1-2026-06-29', 1, NULL, 'San Pedro y San Pablo', '', 'feriado', '2026-06-29', '2026-06-29', 0, 1, '2026-10-22 09:00:00', 1),
+  (8, 'feriado-cl-1-2026-07-16', 1, NULL, 'Virgen del Carmen', '', 'feriado', '2026-07-16', '2026-07-16', 0, 1, '2026-10-22 09:00:00', 1),
+  (9, 'feriado-cl-1-2026-08-15', 1, NULL, 'Asunción de la Virgen', '', 'feriado', '2026-08-15', '2026-08-15', 0, 1, '2026-10-22 09:00:00', 1),
+  (10, 'feriado-cl-1-2026-09-18', 1, NULL, 'Independencia Nacional', '', 'feriado', '2026-09-18', '2026-09-18', 0, 1, '2026-10-22 09:00:00', 1),
+  (11, 'feriado-cl-1-2026-09-19', 1, NULL, 'Día de las Glorias del Ejército', '', 'feriado', '2026-09-19', '2026-09-19', 0, 1, '2026-10-22 09:00:00', 1),
+  (12, 'feriado-cl-1-2026-10-12', 1, NULL, 'Encuentro de Dos Mundos', '', 'feriado', '2026-10-12', '2026-10-12', 0, 1, '2026-10-22 09:00:00', 1),
+  (13, 'feriado-cl-1-2026-10-31', 1, NULL, 'Día de las Iglesias Evangélicas', '', 'feriado', '2026-10-31', '2026-10-31', 0, 1, '2026-10-22 09:00:00', 1),
+  (14, 'feriado-cl-1-2026-11-01', 1, NULL, 'Día de Todos los Santos', '', 'feriado', '2026-11-01', '2026-11-01', 0, 1, '2026-10-22 09:00:00', 1),
+  (15, 'feriado-cl-1-2026-12-08', 1, NULL, 'Inmaculada Concepción', '', 'feriado', '2026-12-08', '2026-12-08', 0, 1, '2026-10-22 09:00:00', 1),
+  (16, 'feriado-cl-1-2026-12-25', 1, NULL, 'Navidad', '', 'feriado', '2026-12-25', '2026-12-25', 0, 1, '2026-10-22 09:00:00', 1),
+  (17, 'demo-evento-1', 1, 1, 'Prueba de ecuaciones de primer grado', 'Traer calculadora y regla.', 'evaluacion', '2026-11-27', '2026-11-27', 1, 1, '2026-10-22 09:00:00', 1),
+  (18, 'demo-evento-2', 1, 1, 'Reunión de apoderados', 'En la sala del curso, a las 18:30.', 'reunion', '2026-11-30', '2026-11-30', 1, 1, '2026-10-22 09:00:00', 1);
 
 SET FOREIGN_KEY_CHECKS = 1;

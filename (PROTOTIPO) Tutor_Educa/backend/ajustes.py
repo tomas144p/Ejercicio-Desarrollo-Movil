@@ -47,6 +47,7 @@ class Ajustes:
     login_ventana_seg: int = 900
     confiar_proxy: bool = False                  # leer la IP real desde X-Forwarded-For (solo detrás de un proxy propio)
     max_cuerpo_bytes: int = 256 * 1024
+    panel_activo: bool = True                    # sirve el panel web de administración en /panel
 
     @property
     def es_produccion(self) -> bool:
@@ -74,7 +75,8 @@ class Ajustes:
             ia_max_tokens=_entero(env, "TUTOR_IA_MAX_TOKENS", 700),
             ia_cuota_diaria=_entero(env, "TUTOR_IA_CUOTA_DIARIA", 40),
             ia_por_minuto=_entero(env, "TUTOR_IA_POR_MINUTO", 6),
-            confiar_proxy=(env.get("TUTOR_CONFIAR_PROXY", "0") == "1"))
+            confiar_proxy=(env.get("TUTOR_CONFIAR_PROXY", "0") == "1"),
+            panel_activo=(env.get("TUTOR_PANEL", "1") != "0"))
         return ajustes.validado()
 
     def validado(self) -> "Ajustes":

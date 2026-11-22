@@ -5,6 +5,7 @@ Pestañas:
 - Inicio: temas de refuerzo que desbloqueó su docente (se estudian sin internet).
 - Notas: rendimiento en todas sus asignaturas.
 - Progreso: avance por tema e historial de pruebas.
+- Calendario: su asistencia día a día, feriados y eventos del curso.
 - Tutor IA: chat con el tutor (solo con internet).
 """
 
@@ -15,6 +16,7 @@ from kivy.uix.image import Image as Imagen
 
 from models.modelos import EscalaNotas, EstadoRefuerzo
 from services.estadisticas import resumen
+from views.calendario_vista import CalendarioMes, lista_eventos, tarjeta_asistencia
 from views.componentes import (BarraProgreso, CajaNota, Columna, EstadoVacio, Etiqueta, Fila, FilaLista, Icono,
                             InsigniaIcono, Metrica, Separador, Superficie, TarjetaTocable, Texto,
                             encabezado_seccion, insignia_nota)
@@ -30,7 +32,8 @@ def tinta_nota(nota) -> str:
 
 class PantallaEstudiante(PantallaConPestanas):
     PESTANAS = [("inicio", "Inicio", "house"), ("notas", "Notas", "chart-column"),
-                ("progreso", "Progreso", "trophy"), ("tutor", "Tutor IA", "bot")]
+                ("calendario", "Calendario", "calendar-days"), ("progreso", "Progreso", "trophy"),
+                ("tutor", "Tutor IA", "bot")]
     ACENTO = Paleta.AZUL
 
     def actualizar(self) -> None:
@@ -41,7 +44,7 @@ class PantallaEstudiante(PantallaConPestanas):
         return f"Hola, {self.app.usuario.primer_nombre}"
 
     def subtitulo(self) -> str:
-        return self.ficha.curso.nombre if self.ficha and self.ficha.curso else "Estudiante"
+        return self.con_colegio(self.ficha.curso.nombre if self.ficha and self.ficha.curso else "Estudiante")
 
     def _sin_datos(self, c) -> bool:
         if self.ficha is None:
@@ -49,6 +52,21 @@ class PantallaEstudiante(PantallaConPestanas):
                                         "Ingresa una vez con conexión para descargar tu información."))
             return True
         return False
+
+    # ------------------------------------------------------------------
+    def pestana_calendario(self, c) -> None:
+        if self._sin_datos(c):
+            return
+        c.add_widget(tarjeta_asistencia(self.ficha, self.ACENTO))
+        vista = self.app.datos.calendario_estudiante(self.ficha)
+        if vista is None:
+            return
+        hoy = self.app.datos.hoy()
+        tarjeta = Superficie(spacing=dp(10))
+        tarjeta.add_widget(Texto("Mi calendario", tamano=16, fuente=Tipografia.SEMI))
+        tarjeta.add_widget(CalendarioMes(vista, hoy, "alumno", self.ACENTO))
+        c.add_widget(tarjeta)
+        c.add_widget(lista_eventos(vista, hoy, self.ACENTO, "Próximos eventos del curso"))
 
     # ------------------------------------------------------------------
     def pestana_inicio(self, c) -> None:
@@ -136,6 +154,8 @@ class PantallaEstudiante(PantallaConPestanas):
                                                             fondo=color(asignatura.color, 0.12), lado=40),
                                         fin=insignia_nota(ficha.promedio(asignatura.id))))  # type: ignore
         c.add_widget(lista)
+        c.add_widget(Boton("Calculadora de notas", icono="calculator", variante="contorno", acento=self.ACENTO, alto=44,
+                           tamano=14, al_presionar=lambda: self.app.ir_a("calculadora")))
 
     # ------------------------------------------------------------------
     def pestana_progreso(self, c) -> None:

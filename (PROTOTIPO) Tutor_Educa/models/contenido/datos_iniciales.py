@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 
 from models.modelos import EscalaNotas
+from services import calendario
 from services.seguridad import GestorClaves
 from models.contenido.matematicas import ASIGNATURA_ID, TEMAS_MATEMATICAS
 
@@ -79,6 +80,9 @@ class DatosIniciales:
     # ------------------------------------------------------------------
     def correo(self, usuario: str) -> str:
         return f"{usuario}@{self.DOMINIO}"
+
+    def fecha_hora_actual(self) -> str:
+        return self._fecha_hora(0)
 
     def _fecha_hora(self, dias_atras: float, hora: int = 10) -> str:
         momento = datetime.combine(self.hoy, time(hora)) - timedelta(days=dias_atras)
@@ -145,7 +149,7 @@ class DatosIniciales:
         usuarios += [self._usuario(i, u, n, "apoderado", creado) for i, u, n, _ in self.APODERADOS]
 
         cursos = [{"id": 1, "nombre": "7° Básico B", "nivel": "7° básico",
-                   "docente_id": self.DOCENTE[0], "anio": self.hoy.year}]
+                   "docente_id": self.DOCENTE[0], "anio": self.hoy.year, "colegio_id": 1}]
         apoderado_de = {estudiante: apoderado for apoderado, _, _, estudiante in self.APODERADOS}
         estudiantes = [{"usuario_id": i, "curso_id": 1, "apoderado_id": apoderado_de.get(i),
                         "asistencia": asistencia} for i, _, _, asistencia, _ in self.ESTUDIANTES]
@@ -201,7 +205,8 @@ class DatosIniciales:
         ]
         avisos_leidos = [{"aviso_id": 1, "usuario_id": 10, "leido_en": self._fecha_hora(2, 21)}]
 
-        datos = {"usuarios": usuarios, "cursos": cursos, "estudiantes": estudiantes}
+        datos = {"colegios": [{"id": 1, "nombre": "Colegio Demo", "activo": 1, "creado_en": creado}],
+                 "usuarios": usuarios, "cursos": cursos, "estudiantes": estudiantes}
         contenido = self.contenido()
         datos["asignaturas"] = contenido["asignaturas"]
         datos["calificaciones"] = calificaciones
@@ -212,8 +217,58 @@ class DatosIniciales:
         datos["intentos"] = intentos
         datos["avisos"] = avisos
         datos["avisos_leidos"] = avisos_leidos
+        datos.update(self.calendario())
         return datos
+
+    # ------------------------------------------------------------------
+    def calendario(self) -> dict[str, list[dict]]:
+        """
+        Asistencia de las últimas semanas (sin contar hoy, para poder probar «Pasar lista de hoy») y algunos
+        eventos, solo para la demostración. Es la misma regla de la app: lunes a viernes, sin feriados, y se
+        guardan solo los ausentes. Matías tiene 3 inasistencias seguidas para ver la alerta.
+        """
+        docente = self.DOCENTE[0]
+        creado = self._fecha_hora(30, 9)
+        feriados = [{"id": n, "codigo": calendario.codigo_feriado(1, dia), "colegio_id": 1, "curso_id": None,
+                     "titulo": nombre, "descripcion": "", "tipo": "feriado", "fecha_inicio": dia, "fecha_fin": dia,
+                     "hay_clases": 0, "creado_por": docente, "creado_en": creado, "activo": 1}
+                    for n, (dia, nombre) in enumerate(calendario.feriados_de(self.hoy.year), start=1)]
+        viernes = self.hoy + timedelta(days=(4 - self.hoy.weekday()) % 7 or 7)
+        reunion = self.hoy + timedelta(days=9)
+        while reunion.weekday() >= 5:
+            reunion += timedelta(days=1)
+        propios = [
+            ("demo-evento-1", "Prueba de ecuaciones de primer grado", "evaluacion", viernes, 1,
+             "Traer calculadora y regla."),
+            ("demo-evento-2", "Reunión de apoderados", "reunion", reunion, 1, "En la sala del curso, a las 18:30."),
+        ]
+        eventos = list(feriados)
+        for codigo, titulo, tipo, dia, curso, detalle in propios:
+            eventos.append({"id": len(eventos) + 1, "codigo": codigo, "colegio_id": 1, "curso_id": curso,
+                            "titulo": titulo, "descripcion": detalle, "tipo": tipo,
+                            "fecha_inicio": calendario.a_texto(dia), "fecha_fin": calendario.a_texto(dia),
+                            "hay_clases": 1, "creado_por": docente, "creado_en": creado, "activo": 1})
+
+        dias = [d for d in calendario.dias_con_clases(self.hoy - timedelta(days=42), self.hoy - timedelta(days=1),
+                                                       False, eventos, 1)]
+        asistencia_dias = [{"curso_id": 1, "fecha": calendario.a_texto(d), "registrado_por": docente,
+                            "registrado_en": f"{calendario.a_texto(d)} 09:00:00"} for d in dias]
+        asistencia, n = [], 0
+        ids = [e[0] for e in self.ESTUDIANTES]
+        for k, (estudiante_id, _, _, pct, _) in enumerate(self.ESTUDIANTES):
+            faltas = round(len(dias) * (100 - pct) / 100)
+            elegidos = {(k * 7 + j * 11) % len(dias) for j in range(faltas)} if dias else set()
+            if estudiante_id == 9 and len(dias) >= 4:           # tres inasistencias seguidas al final
+                elegidos = {i for i in elegidos if i < len(dias) - 8} | {len(dias) - 3, len(dias) - 2, len(dias) - 1}
+            for orden, i in enumerate(sorted(elegidos)):
+                n += 1
+                asistencia.append({"id": n, "estudiante_id": estudiante_id, "fecha": calendario.a_texto(dias[i]),
+                                   "estado": "justificado" if orden % 2 else "ausente", "registrado_por": docente,
+                                   "registrado_en": f"{calendario.a_texto(dias[i])} 09:00:00"})
+        assert set(ids)
+        return {"asistencia_dias": asistencia_dias, "asistencia": asistencia, "eventos": eventos}
 
     def _usuario(self, id_: int, usuario: str, nombre: str, rol: str, creado: str) -> dict:
         return {"id": id_, "correo": self.correo(usuario), "nombre": nombre, "rol": rol,
-                "clave_hash": GestorClaves.generar_hash(self.CLAVE_DEMO), "activo": 1, "creado_en": creado}
+                "clave_hash": GestorClaves.generar_hash(self.CLAVE_DEMO), "activo": 1, "creado_en": creado,
+                "colegio_id": 1}

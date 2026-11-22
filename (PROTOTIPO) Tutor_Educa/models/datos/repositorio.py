@@ -19,9 +19,10 @@ class RepositorioTutor:
     """Lecturas y escrituras comunes sobre las tablas de Tutor Educa."""
 
     SQL_ESTUDIANTE = (
-        "SELECT u.id, u.correo, u.nombre, e.curso_id, e.apoderado_id, e.asistencia, "
-        "a.nombre AS apoderado_nombre FROM estudiantes e "
+        "SELECT u.id, u.correo, u.nombre, u.colegio_id, e.curso_id, c.colegio_id AS curso_colegio_id, "
+        "e.apoderado_id, e.asistencia, a.nombre AS apoderado_nombre FROM estudiantes e "
         "JOIN usuarios u ON u.id = e.usuario_id "
+        "LEFT JOIN cursos c ON c.id = e.curso_id "
         "LEFT JOIN usuarios a ON a.id = e.apoderado_id")
 
     def __init__(self, conexion: ConexionBD):
@@ -78,8 +79,11 @@ class RepositorioTutor:
 
     @staticmethod
     def _a_curso(f: dict) -> Curso:
+        colegio = f.get("colegio_id")
         return Curso(id=int(f["id"]), nombre=f["nombre"], nivel=f["nivel"],
-                     docente_id=int(f["docente_id"]), anio=int(f["anio"]))
+                     docente_id=int(f["docente_id"]), anio=int(f["anio"]),
+                     colegio_id=int(colegio) if colegio is not None else None,
+                     clases_sabado=bool(int(f.get("clases_sabado") or 0)))
 
     def _en(self, plantilla: str, valores: list, extra: tuple = ()) -> list[dict]:
         """Ejecuta una consulta con ``IN (...)``. ``{}`` marca dónde van los ``?``."""
@@ -101,6 +105,15 @@ class RepositorioTutor:
     def nombres_usuarios(self, ids: list[int]) -> dict[int, str]:
         filas = self._en("SELECT id, nombre FROM usuarios WHERE id IN ({})", sorted(set(ids)))
         return {int(f["id"]): f["nombre"] for f in filas}
+
+    # ------------------------------------------------------------------
+    # Colegios
+    # ------------------------------------------------------------------
+    def colegio(self, colegio_id: int) -> dict | None:
+        return self.bd.consultar_uno("SELECT * FROM colegios WHERE id = ?", (colegio_id,))
+
+    def colegios(self) -> list[dict]:
+        return self.bd.consultar("SELECT * FROM colegios ORDER BY nombre")
 
     # ------------------------------------------------------------------
     # Contenido de estudio
@@ -226,6 +239,126 @@ class RepositorioTutor:
             fila["id"] = id_nuevo
         self.bd.insertar("avisos", fila)
         return True
+
+    # --- Errores de la app (crasheos) -------------------------------------------------------------------
+    MAX_ERRORES_POR_COLEGIO_AL_DIA = 500     # tope contra una app que falla en bucle
+    DIAS_GUARDAR_ERRORES = 90                # después de esto se borran (se guardan solo para corregir fallas)
+
+    def registrar_error_app(self, datos: dict) -> bool:
+        """Guarda un error. No duplica el mismo código y descarta lo que pase del tope diario de un colegio."""
+        from datetime import datetime, timedelta
+        if self.bd.valor("SELECT COUNT(*) FROM errores_app WHERE codigo = ?", (datos["codigo"],), 0):
+            return False
+        ahora = datetime.now()
+        formato = "%Y-%m-%d %H:%M:%S"
+        colegio = datos.get("colegio_id")
+        desde = (ahora - timedelta(days=1)).strftime(formato)
+        if colegio is None:
+            hoy = self.bd.valor("SELECT COUNT(*) FROM errores_app WHERE colegio_id IS NULL AND recibido_en >= ?",
+                                (desde,), 0)
+        else:
+            hoy = self.bd.valor("SELECT COUNT(*) FROM errores_app WHERE colegio_id = ? AND recibido_en >= ?",
+                                (colegio, desde), 0)
+        if int(hoy) >= self.MAX_ERRORES_POR_COLEGIO_AL_DIA:
+            return False
+        fila = {k: datos.get(k) for k in ("codigo", "colegio_id", "rol", "creado_en", "version", "plataforma",
+                                           "pantalla", "tipo", "mensaje", "traza", "huella")}
+        fila["recibido_en"] = ahora.strftime(formato)
+        self.bd.insertar("errores_app", fila)
+        limite = (ahora - timedelta(days=self.DIAS_GUARDAR_ERRORES)).strftime(formato)
+        self.bd.ejecutar("DELETE FROM errores_app WHERE recibido_en < ?", (limite,))
+        return True
+
+    def errores_agrupados(self, colegio_id: int | None, dias: int = 30, limite: int = 100) -> dict:
+        """Los errores de los últimos ``dias`` días agrupados por causa (huella), los más frecuentes primero.
+        ``colegio_id`` None = todos los colegios (solo para la superadministradora)."""
+        from datetime import datetime, timedelta
+        desde = (datetime.now() - timedelta(days=int(dias))).strftime("%Y-%m-%d %H:%M:%S")
+        filtro, parametros = ("", [desde]) if colegio_id is None else (" AND colegio_id = ?", [desde, int(colegio_id)])
+        total = int(self.bd.valor(f"SELECT COUNT(*) FROM errores_app WHERE creado_en >= ?{filtro}", parametros, 0))
+        grupos = self.bd.consultar(
+            "SELECT huella, tipo, COUNT(*) AS veces, MIN(creado_en) AS primera_vez, MAX(creado_en) AS ultima_vez "
+            f"FROM errores_app WHERE creado_en >= ?{filtro} GROUP BY huella, tipo "
+            "ORDER BY veces DESC, ultima_vez DESC", parametros)[:int(limite)]
+        resultado = []
+        for g in grupos:
+            ejemplo = self.bd.consultar_uno(
+                f"SELECT version, plataforma, pantalla, mensaje, traza FROM errores_app WHERE huella = ?{filtro} "
+                "AND creado_en >= ? ORDER BY creado_en DESC LIMIT 1",
+                [g["huella"]] + ([] if colegio_id is None else [int(colegio_id)]) + [desde]) or {}
+            resultado.append({"huella": g["huella"], "tipo": g["tipo"], "veces": int(g["veces"]),
+                              "primera_vez": str(g["primera_vez"]), "ultima_vez": str(g["ultima_vez"]),
+                              "version": ejemplo.get("version") or "", "plataforma": ejemplo.get("plataforma") or "",
+                              "pantalla": ejemplo.get("pantalla") or "", "mensaje": ejemplo.get("mensaje") or "",
+                              "traza": ejemplo.get("traza") or ""})
+        return {"dias": int(dias), "total": total, "grupos": resultado}
+
+    # --- Calendario: asistencia y eventos (tareas 20 y 24) -------------------------------------------------
+    def asistencia_dias(self, curso_ids: list[int]) -> list[dict]:
+        """Días en que se pasó lista en esos cursos."""
+        return self._en("SELECT * FROM asistencia_dias WHERE curso_id IN ({}) ORDER BY fecha", curso_ids)
+
+    def asistencia_de(self, estudiante_ids: list[int]) -> list[dict]:
+        """Las inasistencias (ausente o justificado) de esos estudiantes."""
+        return self._en("SELECT * FROM asistencia WHERE estudiante_id IN ({}) ORDER BY fecha", estudiante_ids)
+
+    def guardar_asistencia_dia(self, curso_id: int, fecha: str, ausentes: list[int], justificados: list[int],
+                               docente_id: int | None, registrado_en: str, id_local=None) -> None:
+        """
+        Deja registrada la lista de un día: reemplaza TODO lo de ese día en ese curso (pasar lista dos veces el mismo
+        día no duplica nada). Todos los estudiantes del curso que no estén en las dos listas quedan presentes.
+        ``id_local``: en el teléfono, función que entrega ids negativos para no chocar con los del servidor.
+        """
+        with self.bd.transaccion():
+            self.bd.ejecutar("DELETE FROM asistencia WHERE fecha = ? AND estudiante_id IN "
+                             "(SELECT usuario_id FROM estudiantes WHERE curso_id = ?)", (fecha, curso_id))
+            self.bd.insertar("asistencia_dias", {"curso_id": curso_id, "fecha": fecha, "registrado_por": docente_id,
+                                                 "registrado_en": registrado_en}, reemplazar=True)
+            for estado, ids in (("ausente", ausentes), ("justificado", justificados)):
+                for estudiante_id in ids:
+                    fila = {"estudiante_id": estudiante_id, "fecha": fecha, "estado": estado,
+                            "registrado_por": docente_id, "registrado_en": registrado_en}
+                    if id_local is not None:
+                        fila["id"] = id_local("asistencia")
+                    self.bd.insertar("asistencia", fila)
+
+    def eventos_del_colegio(self, colegio_id: int, curso_ids: list[int] | None = None,
+                            incluir_inactivos: bool = False) -> list[dict]:
+        """Eventos de un colegio. Con ``curso_ids``: los de todo el colegio y los de esos cursos."""
+        base = "SELECT * FROM eventos WHERE colegio_id = ?" + ("" if incluir_inactivos else " AND activo = 1")
+        filas = self.bd.consultar(base + " ORDER BY fecha_inicio, id", (colegio_id,))
+        if curso_ids is not None:
+            permitidos = {int(c) for c in curso_ids}
+            filas = [f for f in filas if f["curso_id"] is None or int(f["curso_id"]) in permitidos]
+        return filas
+
+    def evento_por_codigo(self, codigo: str) -> dict | None:
+        return self.bd.consultar_uno("SELECT * FROM eventos WHERE codigo = ?", (codigo,))
+
+    def evento(self, evento_id: int) -> dict | None:
+        return self.bd.consultar_uno("SELECT * FROM eventos WHERE id = ?", (evento_id,))
+
+    def publicar_evento(self, datos: dict, id_nuevo: int | None = None) -> bool:
+        """Crea un evento. Si su código ya existe no lo duplica (enviar dos veces lo mismo es seguro)."""
+        if self.evento_por_codigo(datos["codigo"]):
+            return False
+        fila = {k: datos.get(k) for k in ("codigo", "colegio_id", "curso_id", "titulo", "descripcion", "tipo",
+                                          "fecha_inicio", "fecha_fin", "hay_clases", "creado_por", "creado_en")}
+        fila["activo"] = 1
+        if id_nuevo is not None:
+            fila["id"] = id_nuevo
+        self.bd.insertar("eventos", fila)
+        return True
+
+    def dar_de_baja_evento(self, codigo: str) -> bool:
+        """Un evento no se borra: se desactiva (queda el historial)."""
+        if not self.bd.valor("SELECT COUNT(*) FROM eventos WHERE codigo = ? AND activo = 1", (codigo,), 0):
+            return False
+        self.bd.ejecutar("UPDATE eventos SET activo = 0 WHERE codigo = ?", (codigo,))
+        return True
+
+    def cambiar_sabado_curso(self, curso_id: int, clases_sabado: bool) -> None:
+        self.bd.ejecutar("UPDATE cursos SET clases_sabado = ? WHERE id = ?", (1 if clases_sabado else 0, curso_id))
 
     def aviso_por_codigo(self, codigo: str) -> dict | None:
         return self.bd.consultar_uno("SELECT * FROM avisos WHERE codigo = ?", (codigo,))

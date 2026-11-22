@@ -16,11 +16,14 @@ from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 
 from models.modelos import EscalaNotas
-from views.componentes import (Avatar, CajaNota, CampoTexto, Columna, EstadoVacio, Fila, FilaLista, InsigniaIcono,
+from views.componentes import (Avatar, Boton, CajaNota, CampoTexto, Columna, EstadoVacio, Fila, FilaLista, InsigniaIcono,
                            Interruptor, Metrica, Separador, Superficie, Texto, encabezado_seccion, insignia_nota)
+from views.calendario_vista import tarjeta_asistencia
 from views.dialogos import Dialogo
+from views.gestion_dialogos import abrir_gestion_estudiante
 from views.estilo import FormatoTexto, Paleta, Tipografia, color
 from views.navegacion import BarraSuperior
+from views.tarjeta_efecto import tarjeta_efecto
 from views.base_screen import FondoPapel, PantallaBase, crear_desplazable
 
 CENTRO = {"center_y": 0.5}
@@ -84,11 +87,17 @@ class PantallaFichaEstudiante(PantallaBase):
         metricas.add_widget(Metrica(EscalaNotas.formatear(ficha.promedio_general), "Promedio general"))
         metricas.add_widget(Metrica(f"{ficha.asistencia} %", "Asistencia"))
         cabecera.add_widget(metricas)
+        cabecera.add_widget(Boton("Gestionar cuenta y apoderado", icono="settings", variante="contorno",
+                                  acento=self.ACENTO, alto=42, tamano=13.5,
+                                  al_presionar=lambda: abrir_gestion_estudiante(self.app, ficha)))
         c.add_widget(cabecera)
         if ficha.necesita_refuerzo:
             c.add_widget(CajaNota("Sugerencia", f"{nombre} tiene promedio bajo 5,0 en Matemáticas. Revisa sus "
                                   "notas y desbloquea los temas donde más le cuesta.", icono="lightbulb",
                                   tinta=Paleta.AMBAR, fondo=Paleta.DESTACADOR_SUAVE))
+
+        c.add_widget(tarjeta_asistencia(ficha, self.ACENTO))
+        c.add_widget(tarjeta_efecto(self.app.datos.metricas_de(ficha), "docente", nombre))
 
         c.add_widget(encabezado_seccion("Temas de Matemáticas", f"Activa un tema para que {nombre} lo vea en su "
                                         "app. Bloquearlo no borra su avance."))
@@ -162,12 +171,12 @@ class PantallaFichaEstudiante(PantallaBase):
                                alto=90, acento=self.ACENTO)
 
             def confirmar():
-                self.app.datos.cambiar_desbloqueo(estudiante_id, tema.id, True, campo.texto.strip() or None)
+                self.app.datos.desbloquear_varios([estudiante_id], tema.id, campo.texto.strip())
                 self.app.notificador.mostrar(f"{tema.titulo} desbloqueado para {nombre}.", "exito")
                 self.actualizar()
 
             Dialogo(f"Desbloquear {tema.titulo}", f"{nombre} verá este tema en su app y podrá estudiarlo sin "
-                    "internet.", contenido=campo, icono="lock-open", tinta=self.ACENTO, cerrar_al_tocar_fuera=False,
+                    "internet. Su familia recibirá un aviso automático.", contenido=campo, icono="lock-open", tinta=self.ACENTO, cerrar_al_tocar_fuera=False,
                     botones=[("Cancelar", lambda: self._revertir(interruptor, False), "contorno"),
                              ("Desbloquear", confirmar, "primario")]).open()
         else:

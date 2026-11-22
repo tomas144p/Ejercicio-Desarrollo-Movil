@@ -3,6 +3,7 @@ Pantalla principal del docente.
 
 Pestañas:
 - Mi curso: estudiantes con su promedio de Matemáticas y quiénes necesitan refuerzo.
+- Asistencia: pasar lista (solo se marca a quien faltó), calendario del curso con feriados y eventos.
 - Temas: desbloquear materia para un grupo (los que necesitan refuerzo o todo el curso).
 - Avisos: escribir mensajes a los apoderados y ver quién los leyó.
 
@@ -16,38 +17,49 @@ from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.stacklayout import StackLayout
 
+from services.acciones_docente import (PLANTILLAS_AVISO, avisos_sin_confirmar, en_riesgo_sin_refuerzo,
+                                       tema_sugerido, tiene_datos_sin_completar, tiene_tema)
+from services.cursos import curso_activo, ordenar_resumenes
+from services.metricas import semestre_actual
 from services.ordenamiento import ordenar_fichas
 from services.validaciones import validar_aviso
 from models.modelos import Aviso, EscalaNotas, EstadoRefuerzo, promedio
+from services import calendario
+from views.calendario_vista import CalendarioMes, abrir_evento_nuevo, abrir_lista_del_dia, lista_eventos
 from views.componentes import (Avatar, Boton, CampoTexto, Chip, Columna, EstadoVacio, Etiqueta, Fila, FilaLista,
-                           InsigniaIcono, Metrica, Separador, Superficie, TarjetaTocable, Texto,
+                           InsigniaIcono, Interruptor, Metrica, Separador, Superficie, TarjetaTocable, Texto,
                            encabezado_seccion, insignia_nota_tendencia, leyenda_notas)
 from views.dialogos import Dialogo
+from views.gestion_dialogos import abrir_bajas, abrir_estudiante_nuevo
 from views.estilo import FormatoTexto, Paleta, Tipografia
 from views.base_screen import PantallaConPestanas
+from views.tarjeta_efecto import tarjeta_efecto_curso
 
 CENTRO = {"center_y": 0.5}
 TIPOS_AVISO = [("info", "Información"), ("evaluacion", "Evaluación"), ("refuerzo", "Refuerzo"), ("logro", "Logro")]
 
 
-def tiene_tema(ficha, tema_id: str) -> bool:
-    return any(r.tema_id == tema_id and r.activo for r in ficha.refuerzos)
-
-
 class PantallaDocente(PantallaConPestanas):
-    PESTANAS = [("curso", "Mi curso", "users"), ("temas", "Temas", "book-open"), ("avisos", "Avisos", "megaphone")]
+    PESTANAS = [("curso", "Mi curso", "users"), ("asistencia", "Asistencia", "calendar-check"),
+                ("temas", "Temas", "book-open"), ("avisos", "Avisos", "megaphone")]
     ACENTO = Paleta.PIZARRA
 
     def __init__(self, app, **kwargs):
         super().__init__(app, **kwargs)
         self.curso = None
+        self.cursos = []          # todos los cursos de la docente
+        self.curso_id = None      # el que eligió (solo importa si tiene más de uno)
         self.fichas = []
         self.filtro = "todos"
         self.orden = "menor"    # "menor" (de la nota más baja a la más alta), "mayor" o "nombre"
         self._borrador = {"titulo": "", "cuerpo": "", "tipo": "info", "destinatario": None}
+        self._mes_calendario = None      # (año, mes) que se estaba mirando en la pestaña Asistencia
+        self._calendario = None
 
     def reiniciar(self) -> None:
         super().reiniciar()
+        self._mes_calendario = None
+        self.curso_id = None
         self.filtro = "todos"
         self.orden = "menor"
         self._borrador = {"titulo": "", "cuerpo": "", "tipo": "info", "destinatario": None}
@@ -55,8 +67,8 @@ class PantallaDocente(PantallaConPestanas):
     def actualizar(self) -> None:
         if self.app.usuario is None:
             return
-        cursos = self.app.datos.cursos_docente()
-        self.curso = cursos[0] if cursos else None
+        self.cursos = self.app.datos.cursos_docente()
+        self.curso = curso_activo(self.cursos, self.curso_id)
         self.fichas = self.app.datos.fichas_curso(self.curso.id) if self.curso else []
         super().actualizar()
 
@@ -64,14 +76,177 @@ class PantallaDocente(PantallaConPestanas):
         return f"Hola, {self.app.usuario.primer_nombre}"
 
     def subtitulo(self) -> str:
-        return f"Docente de {self.curso.nombre}" if self.curso else "Docente"
+        if self.curso is None and len(self.cursos) > 1:
+            return self.con_colegio("Elige un curso")
+        return self.con_colegio(self.curso.nombre if self.curso else "Docente")
 
     def _sin_curso(self, c) -> bool:
-        if self.curso is None:
-            c.add_widget(EstadoVacio("users", "No hay cursos en este dispositivo",
-                                     "Ingresa con conexión para descargar tus cursos.", tinta=self.ACENTO))
+        """Si no hay curso activo: muestra el selector (varios cursos) o el aviso de que no hay ninguno."""
+        if self.curso is not None:
+            if len(self.cursos) > 1:
+                self._barra_curso(c)
+            return False
+        if len(self.cursos) > 1:
+            self._selector_cursos(c)
             return True
-        return False
+        c.add_widget(EstadoVacio("users", "No hay cursos en este dispositivo",
+                                 "Ingresa con conexión para descargar tus cursos.", tinta=self.ACENTO))
+        return True
+
+    # ------------------------------------------------------------------
+    # Elegir curso (docentes con más de uno)
+    # ------------------------------------------------------------------
+    def _barra_curso(self, c) -> None:
+        """Curso actual y acceso para cambiarlo, arriba de cada pestaña."""
+        fila = Fila(spacing=dp(10), size_hint_y=None, height=dp(36))
+        fila.add_widget(Texto(self.curso.nombre, tamano=15, fuente=Tipografia.SEMI, pos_hint=CENTRO))
+        fila.add_widget(Chip("Cambiar curso", icono="arrow-left-right", acento=self.ACENTO,
+                             al_presionar=self._cambiar_curso, pos_hint=CENTRO))
+        c.add_widget(fila)
+
+    def _selector_cursos(self, c) -> None:
+        c.add_widget(encabezado_seccion("¿Con qué curso quieres trabajar?",
+                                        "Primero los que tienen más estudiantes bajo 5,0 en Matemáticas."))
+        for resumen in ordenar_resumenes(self.app.datos.resumen_cursos()):
+            tarjeta = TarjetaTocable(spacing=dp(8), al_presionar=lambda r=resumen: self._elegir_curso(r.curso.id))
+            cabecera = Fila(spacing=dp(12))
+            cabecera.add_widget(InsigniaIcono("users", tinta=self.ACENTO, lado=42, pos_hint=CENTRO))
+            textos = Columna(spacing=dp(2), pos_hint=CENTRO)
+            textos.add_widget(Texto(resumen.curso.nombre, tamano=16.5, fuente=Tipografia.SEMI))
+            textos.add_widget(Texto(f"{resumen.estudiantes} "
+                                    f"{'estudiante' if resumen.estudiantes == 1 else 'estudiantes'}",
+                                    tamano=13, color_texto=Paleta.TINTA_SUAVE))
+            cabecera.add_widget(textos)
+            tarjeta.add_widget(cabecera)
+            etiquetas = StackLayout(orientation="lr-tb", size_hint_y=None, spacing=dp(8))   # se acomodan en varias líneas
+            etiquetas.bind(minimum_height=etiquetas.setter("height"))
+            if resumen.en_riesgo:
+                etiquetas.add_widget(Etiqueta(f"{resumen.en_riesgo} bajo 5,0", tinta=Paleta.ROJO,
+                                              icono="triangle-alert"))
+            else:
+                etiquetas.add_widget(Etiqueta("Sin estudiantes en riesgo", tinta=Paleta.VERDE, icono="circle-check"))
+            if resumen.avisos_sin_confirmar:
+                etiquetas.add_widget(Etiqueta(f"{resumen.avisos_sin_confirmar} "
+                                              f"{'aviso' if resumen.avisos_sin_confirmar == 1 else 'avisos'} "
+                                              "sin «Recibido»", tinta=Paleta.AMBAR, icono="megaphone"))
+            if resumen.sin_apoderado:
+                etiquetas.add_widget(Etiqueta(f"{resumen.sin_apoderado} sin apoderado", tinta=Paleta.AMBAR,
+                                              icono="user-x"))
+            tarjeta.add_widget(etiquetas)
+            c.add_widget(tarjeta)
+
+    def _elegir_curso(self, curso_id: int) -> None:
+        self.curso_id = curso_id
+        self.filtro = "todos"
+        self._borrador["destinatario"] = None      # el destinatario era un estudiante del curso anterior
+        self.pestana = self.PESTANAS[0][0]
+        self._posiciones.clear()
+        self.actualizar()
+
+    def _cambiar_curso(self) -> None:
+        self.curso_id = None
+        self._borrador["destinatario"] = None
+        self._posiciones.clear()
+        self.actualizar()
+
+    # ------------------------------------------------------------------
+    # Para hoy: accesos rápidos
+    # ------------------------------------------------------------------
+    def _para_hoy(self, c) -> None:
+        """Lo que conviene hacer ahora, a uno o dos toques. Pensado para que la app ahorre trabajo."""
+        datos = self.app.datos
+        sin_refuerzo = en_riesgo_sin_refuerzo(self.fichas)
+        sugerido = tema_sugerido(self.fichas, datos.temas())
+        tema = datos.tema(sugerido.tema_id) if sugerido else None
+        pendientes = avisos_sin_confirmar(datos.avisos_curso(self.curso.id), self.fichas)
+
+        tarjeta = Superficie(spacing=dp(10))
+        tarjeta.add_widget(Texto("Para hoy", tamano=16, fuente=Tipografia.SEMI))
+
+        if tema:
+            n = sugerido.estudiantes
+            if sin_refuerzo:
+                tarjeta.add_widget(Etiqueta(f"{len(sin_refuerzo)} bajo 5,0 sin ningún refuerzo",
+                                            tinta=Paleta.ROJO, icono="triangle-alert"))
+            tarjeta.add_widget(Texto(f"{n} {'estudiante' if n == 1 else 'estudiantes'} bajo 5,0 aún "
+                                     f"{'no tiene' if n == 1 else 'no tienen'} «{tema.titulo}».",
+                                     tamano=13.5, color_texto=Paleta.TINTA_SUAVE))
+            fila = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
+            fila.add_widget(Boton("Desbloquear", icono="lock-open", acento=self.ACENTO, alto=44, tamano=14,
+                                  al_presionar=lambda t=tema: self._dialogo_desbloqueo(t)))
+            fila.add_widget(Boton("Otro tema", icono="book-open", variante="contorno", acento=self.ACENTO,
+                                  alto=44, tamano=14, al_presionar=lambda: self.cambiar_pestana("temas")))
+            tarjeta.add_widget(fila)
+
+        if pendientes.avisos:
+            tarjeta.add_widget(Etiqueta(f"{pendientes.familias} "
+                                        f"{'familia' if pendientes.familias == 1 else 'familias'} sin «Recibido»",
+                                        tinta=Paleta.AMBAR, icono="megaphone"))
+            tarjeta.add_widget(Texto(f"{pendientes.avisos} {'aviso' if pendientes.avisos == 1 else 'avisos'} "
+                                     "de las últimas dos semanas aún no se confirman.",
+                                     tamano=13.5, color_texto=Paleta.TINTA_SUAVE))
+            tarjeta.add_widget(Boton("Ver avisos", icono="megaphone", variante="contorno", acento=self.ACENTO,
+                                     alto=44, tamano=14, al_presionar=lambda: self.cambiar_pestana("avisos")))
+
+        if not tema and not pendientes.avisos:
+            tarjeta.add_widget(Etiqueta("Todo al día", tinta=Paleta.VERDE, icono="circle-check"))
+            tarjeta.add_widget(Texto("Nadie necesita un refuerzo nuevo y las familias confirmaron sus avisos.",
+                                     tamano=13.5, color_texto=Paleta.TINTA_SUAVE))
+
+        tarjeta.add_widget(Boton("Aviso rápido al curso", icono="send", variante="contorno", acento=self.ACENTO,
+                                 alto=44, tamano=14, al_presionar=self._dialogo_plantillas))
+        c.add_widget(tarjeta)
+
+    def _dialogo_exportar(self) -> None:
+        """Guarda las métricas del curso en un CSV que abre Excel. La versión anónima es para compartir fuera del colegio."""
+        from kivy.utils import platform
+        nota = ("\n\nEn el teléfono el archivo queda dentro de la app: para sacarlo, usa la versión de computador."
+                if platform == "android" else "")
+        Dialogo("Exportar métricas del curso",
+                "Se guarda un archivo CSV que abre en Excel, con un estudiante por fila. «Anónima» cambia los nombres por "
+                "«Estudiante 01», «Estudiante 02»… y es la que conviene compartir fuera del colegio." + nota,
+                icono="download", tinta=self.ACENTO,
+                botones=[("Cancelar", None, "contorno"), ("Con nombres", lambda: self._exportar(False), "contorno"),
+                         ("Anónima", lambda: self._exportar(True), "primario")]).open()
+
+    def _exportar(self, anonimo: bool) -> None:
+        from pathlib import Path
+        try:
+            ruta = self.app.datos.exportar_metricas_csv(self.curso.id, Path(self.app.user_data_dir) / "exportaciones",
+                                                        anonimo)
+        except Exception as error:                      # un fallo al guardar no debe cerrar la app
+            self.app.notificador.mostrar(f"No se pudo guardar el archivo: {error}", "error")
+            return
+        Dialogo("Archivo guardado", f"Quedó en:\n{ruta}", icono="circle-check", tinta=Paleta.VERDE,
+                botones=[("Listo", None, "primario")]).open()
+
+    def _dialogo_plantillas(self) -> None:
+        contenido = Columna(spacing=0)
+        dialogo = None
+
+        def elegir(plantilla):
+            dialogo.dismiss()
+            self._usar_plantilla(plantilla, ir_a_avisos=True)
+
+        for indice, plantilla in enumerate(PLANTILLAS_AVISO):
+            if indice:
+                contenido.add_widget(Separador())
+            tinta, _fondo, icono, nombre_tipo = Paleta.POR_TIPO_AVISO.get(plantilla.tipo, Paleta.POR_TIPO_AVISO["info"])
+            contenido.add_widget(FilaLista(plantilla.nombre, plantilla.titulo,
+                                           inicio=InsigniaIcono(icono, tinta=tinta, lado=38),
+                                           al_presionar=lambda p=plantilla: elegir(p)))
+        dialogo = Dialogo("Aviso rápido", "Elige una plantilla; la revisas y la envías en la pestaña Avisos.",
+                          contenido=contenido, icono="send", tinta=self.ACENTO,
+                          botones=[("Cancelar", None, "contorno")])
+        dialogo.open()
+
+    def _usar_plantilla(self, plantilla, ir_a_avisos: bool = False) -> None:
+        self._borrador.update(titulo=plantilla.titulo, cuerpo=plantilla.cuerpo, tipo=plantilla.tipo,
+                              destinatario=None)
+        if ir_a_avisos:
+            self.cambiar_pestana("avisos")
+        else:
+            self.dibujar_pestana(conservar_posicion=True)
 
     # ------------------------------------------------------------------
     # Mi curso
@@ -84,6 +259,17 @@ class PantallaDocente(PantallaConPestanas):
         necesitan = [f for f in self.fichas if f.necesita_refuerzo]
         logrados = sum(1 for f in self.fichas for r in f.refuerzos_activos if r.estado == EstadoRefuerzo.LOGRADO)
 
+        self._para_hoy(c)
+
+        acciones = Fila(spacing=dp(10))
+        acciones.add_widget(Boton("Agregar estudiante", icono="user-plus", acento=self.ACENTO, alto=44, tamano=14,
+                                  al_presionar=lambda: abrir_estudiante_nuevo(self.app, self.curso)))
+        acciones.add_widget(Boton("Dados de baja", icono="archive", variante="contorno", acento=self.ACENTO, alto=44,
+                                  tamano=14, al_presionar=lambda: abrir_bajas(self.app)))
+        c.add_widget(acciones)
+        c.add_widget(Boton("Calculadora de notas", icono="calculator", variante="contorno", acento=self.ACENTO, alto=44,
+                           tamano=14, al_presionar=lambda: self.app.ir_a("calculadora", curso_id=self.curso.id)))
+
         resumen = Superficie()
         fila = Fila()
         tinta = Paleta.POR_CATEGORIA_NOTA[EscalaNotas.categoria(promedio_curso)][0]
@@ -93,6 +279,8 @@ class PantallaDocente(PantallaConPestanas):
         fila.add_widget(Metrica(str(logrados), "Temas logrados", tinta=Paleta.VERDE))
         resumen.add_widget(fila)
         c.add_widget(resumen)
+        c.add_widget(tarjeta_efecto_curso(self.app.datos.resumen_efecto_curso(self.curso.id), semestre_actual().nombre,
+                                          self._dialogo_exportar))
 
         filtros = StackLayout(orientation="lr-tb", size_hint_y=None, spacing=dp(8))
         filtros.bind(minimum_height=filtros.setter("height"))
@@ -146,6 +334,119 @@ class PantallaDocente(PantallaConPestanas):
     def _ordenar(self, orden: str) -> None:
         self.orden = orden
         self.dibujar_pestana(conservar_posicion=True)
+
+    # ------------------------------------------------------------------
+    # Asistencia y calendario
+    # ------------------------------------------------------------------
+    def pestana_asistencia(self, c) -> None:
+        if self._sin_curso(c):
+            return
+        datos = self.app.datos
+        vista = datos.calendario_curso(self.curso.id)
+        if vista is None:
+            return
+        hoy = datos.hoy()
+        self._tarjeta_lista_de_hoy(c, vista, hoy)
+
+        tarjeta = Superficie(spacing=dp(10))
+        tarjeta.add_widget(Texto("Calendario del curso", tamano=16, fuente=Tipografia.SEMI))
+        tarjeta.add_widget(Texto("Toca un día con clases para pasar o corregir la lista. Los feriados y los días "
+                                 "sin clases no cuentan en la asistencia.", tamano=13, color_texto=Paleta.TINTA_SUAVE))
+        self._calendario = CalendarioMes(vista, hoy, "curso", self.ACENTO, al_tocar_dia=lambda d: self._tocar_dia(d, vista, hoy),
+                                         mes=self._mes_calendario,
+                                         al_cambiar_mes=lambda mes: setattr(self, "_mes_calendario", mes))
+        tarjeta.add_widget(self._calendario)
+        c.add_widget(tarjeta)
+
+        sabado = Superficie(spacing=dp(6))
+        fila = Fila(spacing=dp(12))
+        textos = Columna(spacing=dp(2), pos_hint=CENTRO)
+        textos.add_widget(Texto("Clases los sábados", tamano=15, fuente=Tipografia.MEDIA))
+        textos.add_widget(Texto("Apagado: el sábado no se pasa lista. El domingo nunca hay clases.", tamano=12.5,
+                                color_texto=Paleta.TINTA_SUAVE))
+        fila.add_widget(textos)
+        interruptor = Interruptor(vista.clases_sabado, acento=self.ACENTO, pos_hint=CENTRO)
+        interruptor.bind(activo=lambda _w, valor: self._cambiar_sabado(valor))
+        fila.add_widget(interruptor)
+        sabado.add_widget(fila)
+        c.add_widget(sabado)
+
+        self._alertas_de_asistencia(c)
+
+        c.add_widget(lista_eventos(vista, hoy, self.ACENTO, "Próximos eventos del curso", al_baja=self._baja_evento,
+                                   vacio="Todavía no hay eventos. Agrega pruebas, reuniones o días sin clases."))
+        c.add_widget(Boton("Agregar evento", icono="calendar-plus", variante="contorno", acento=self.ACENTO, alto=44,
+                           tamano=14, al_presionar=lambda: abrir_evento_nuevo(self.app, self.curso, hoy, self.actualizar)))
+
+    def _tarjeta_lista_de_hoy(self, c, vista, hoy) -> None:
+        estado = vista.estado_dia(hoy)
+        dia = calendario.a_texto(hoy)
+        tarjeta = Superficie(spacing=dp(10))
+        tarjeta.add_widget(Texto("Asistencia de hoy", tamano=16, fuente=Tipografia.SEMI))
+        tarjeta.add_widget(Texto(calendario.fecha_legible(hoy).capitalize(), tamano=13.5,
+                                 color_texto=Paleta.TINTA_SUAVE))
+        if not estado.con_clases:
+            tarjeta.add_widget(Etiqueta(estado.motivo.rstrip("."), tinta=Paleta.AMBAR, icono="calendar-off"))
+        elif dia in vista.dias_con_lista:
+            faltaron = vista.ausencias_por_dia.get(dia, 0)
+            tarjeta.add_widget(Etiqueta("Lista pasada", tinta=Paleta.VERDE, icono="circle-check"))
+            tarjeta.add_widget(Texto("Todos presentes." if not faltaron else
+                                     f"{faltaron} {'estudiante faltó' if faltaron == 1 else 'estudiantes faltaron'}.",
+                                     tamano=13.5, color_texto=Paleta.TINTA_SUAVE))
+            tarjeta.add_widget(Boton("Corregir la lista", icono="pencil", variante="contorno", acento=self.ACENTO,
+                                     alto=44, tamano=14,
+                                     al_presionar=lambda: abrir_lista_del_dia(self.app, self.curso, dia, self.actualizar)))
+        else:
+            tarjeta.add_widget(Texto("Todos aparecen presentes: solo marcas a quien faltó.", tamano=13.5,
+                                     color_texto=Paleta.TINTA_SUAVE))
+            tarjeta.add_widget(Boton("Pasar lista de hoy", icono="clipboard-check", acento=self.ACENTO, alto=48,
+                                     al_presionar=lambda: abrir_lista_del_dia(self.app, self.curso, dia, self.actualizar)))
+        c.add_widget(tarjeta)
+
+    def _tocar_dia(self, dia, vista, hoy) -> None:
+        if vista.estado_dia(dia).con_clases and dia <= hoy:
+            abrir_lista_del_dia(self.app, self.curso, calendario.a_texto(dia), self.actualizar)
+        elif self._calendario is not None:
+            self._calendario.mostrar_detalle(dia)
+
+    def _cambiar_sabado(self, activo: bool) -> None:
+        error = self.app.datos.cambiar_sabado(self.curso.id, activo)
+        if error:
+            self.app.notificador.mostrar(error, "error")
+        self.actualizar()
+
+    def _baja_evento(self, evento: dict) -> None:
+        def confirmar():
+            error = self.app.datos.dar_de_baja_evento(evento)
+            if error:
+                self.app.notificador.mostrar(error, "error")
+            self.actualizar()
+        Dialogo.confirmar("¿Quitar este evento?", f"«{evento['titulo']}» dejará de verse en el calendario del curso.",
+                          "Quitar", confirmar, peligro=True, icono="trash-2")
+
+    def _alertas_de_asistencia(self, c) -> None:
+        """Quiénes tienen inasistencias seguidas o están bajo el 85 %: a ellos conviene llamar o conversar."""
+        alertas = []
+        for ficha in self.fichas:
+            r = ficha.resumen_asistencia
+            if r is None or not r.hay_datos:
+                continue
+            if r.alerta_seguidas:
+                alertas.append((0, ficha, f"Faltó los últimos {r.seguidas} días con clases"))
+            elif r.porcentaje < 85:
+                alertas.append((1, ficha, f"{r.porcentaje} % de asistencia ({r.inasistencias} inasistencias)"))
+        if not alertas:
+            return
+        c.add_widget(encabezado_seccion("Para conversar con las familias",
+                                        "Tres inasistencias seguidas, o asistencia bajo el 85 %."))
+        lista = Superficie(padding=(dp(16), dp(4)), spacing=0)
+        for indice, (_orden, ficha, detalle) in enumerate(sorted(alertas, key=lambda a: (a[0], a[1].estudiante.nombre))):
+            if indice:
+                lista.add_widget(Separador())
+            lista.add_widget(FilaLista(ficha.estudiante.nombre, detalle,
+                                       inicio=InsigniaIcono("triangle-alert", tinta=Paleta.ROJO, lado=40),
+                                       al_presionar=lambda e=ficha.estudiante.id: self.app.ir_a("ficha", estudiante_id=e)))
+        c.add_widget(lista)
 
     # ------------------------------------------------------------------
     # Temas
@@ -219,11 +520,11 @@ class PantallaDocente(PantallaConPestanas):
                 return False
             cantidad = self.app.datos.desbloquear_varios([f.estudiante.id for f in grupo], tema.id, campo.texto.strip())
             self.app.notificador.mostrar(f"{tema.titulo}: desbloqueado para {cantidad} "
-                                         f"{'estudiante' if cantidad == 1 else 'estudiantes'}.", "exito")
+                                         f"{'estudiante' if cantidad == 1 else 'estudiantes'} y se avisó a sus familias.", "exito")
             self.actualizar()
             return True
 
-        Dialogo(f"Desbloquear {tema.titulo}", "¿Para quiénes quieres desbloquear este tema?", contenido=contenido,
+        Dialogo(f"Desbloquear {tema.titulo}", "¿Para quiénes quieres desbloquear este tema? Las familias reciben un aviso automático.", contenido=contenido,
                 icono="lock-open", tinta=self.ACENTO,
                 botones=[("Cancelar", None, "contorno"), ("Desbloquear", confirmar, "primario")]).open()
 
@@ -245,8 +546,19 @@ class PantallaDocente(PantallaConPestanas):
                                  pos_hint=CENTRO))
         redactar.add_widget(destino)
 
+        plantillas = StackLayout(orientation="lr-tb", size_hint_y=None, spacing=dp(8))
+        plantillas.bind(minimum_height=plantillas.setter("height"))
+        plantillas.add_widget(Texto("Plantillas:", tamano=13, color_texto=Paleta.TINTA_SUAVE,
+                                    size_hint=(None, None), width=dp(80), height=dp(36)))
+        for plantilla in PLANTILLAS_AVISO:
+            plantillas.add_widget(Chip(plantilla.nombre, acento=self.ACENTO,
+                                       al_presionar=lambda p=plantilla: self._usar_plantilla(p)))
+        redactar.add_widget(plantillas)
+
         tipos = StackLayout(orientation="lr-tb", size_hint_y=None, spacing=dp(8))
         tipos.bind(minimum_height=tipos.setter("height"))
+        tipos.add_widget(Texto("Tipo:", tamano=13, color_texto=Paleta.TINTA_SUAVE,
+                               size_hint=(None, None), width=dp(80), height=dp(36)))
         for clave, nombre in TIPOS_AVISO:
             tipos.add_widget(Chip(nombre, seleccionado=borrador["tipo"] == clave, acento=self.ACENTO,
                                   al_presionar=lambda k=clave: self._cambiar_tipo(k)))
@@ -330,6 +642,9 @@ class PantallaDocente(PantallaConPestanas):
             titulo, cuerpo = validar_aviso(self.campo_titulo.texto, self.campo_cuerpo.texto)
         except ValueError as error:
             self.app.notificador.mostrar(str(error), "error")
+            return
+        if tiene_datos_sin_completar(titulo, cuerpo):
+            self.app.notificador.mostrar("Completa los datos que están entre [corchetes] antes de enviar.", "error")
             return
         borrador = self._borrador
         aviso = Aviso.nuevo(self.curso.id, self.app.usuario.id, titulo, cuerpo,

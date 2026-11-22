@@ -37,11 +37,17 @@ if HAY_API:
     from services.autenticacion import ServicioAutenticacion
     from services.configuracion import ConfigServidor
     from services.datos_app import ServicioDatos
+    from services.gestion_docente import ServicioGestion, mensaje_invitacion
     from services.ia.proveedor_servidor import ProveedorServidor
     from services.ia.proveedores import ErrorIA, ProveedorIA
     from services.sincronizacion import ServicioSincronizacion
 
 CLAVE = DatosIniciales.CLAVE_DEMO
+
+
+def secrets_hex() -> str:
+    import secrets
+    return secrets.token_hex(3)
 
 
 def correo(usuario: str) -> str:
@@ -60,8 +66,9 @@ if HAY_API:
             return "Respuesta de prueba."
 
 
-@unittest.skipUnless(HAY_API, "uvicorn/FastAPI no están instalados (pip install -r backend/requirements.txt)")
-class PruebasClienteHTTP(unittest.TestCase):
+class _ServidorEnVivo:
+    """Levanta un backend real (en un hilo) con su propia base de datos, y la app conectada a él."""
+
     @classmethod
     def setUpClass(cls):
         cls.carpeta_servidor = Path(tempfile.mkdtemp())
@@ -95,11 +102,15 @@ class PruebasClienteHTTP(unittest.TestCase):
         self.sinc = ServicioSincronizacion(self.local, self.gestor)
         self.monitor = MonitorFalso()
         self.auth = ServicioAutenticacion(self.local, self.gestor, self.sinc, self.monitor)
+        self.gestion = ServicioGestion(self.gestor, self.sinc, self.monitor, self.local)
         self.datos = ServicioDatos(self.local)
 
     def tearDown(self):
         shutil.rmtree(self.carpeta, ignore_errors=True)
 
+
+@unittest.skipUnless(HAY_API, "uvicorn/FastAPI no están instalados (pip install -r backend/requirements.txt)")
+class PruebasClienteHTTP(_ServidorEnVivo, unittest.TestCase):
     # ------------------------------------------------------------------
     def test_la_app_no_necesita_claves_de_base_de_datos(self):
         self.assertTrue(self.gestor.usa_backend)
@@ -127,9 +138,21 @@ class PruebasClienteHTTP(unittest.TestCase):
         self.datos.iniciar_sesion(resultado.usuario)
         hijos = self.datos.hijos()
         self.assertEqual([h.estudiante.nombre for h in hijos], ["Sofía Morales"])
+        self.assertEqual([c["nombre"] for c in self.local.colegios()], ["Colegio Demo"])    # el colegio llegó al teléfono
+        self.assertEqual(resultado.usuario.colegio_id, 1)
         # lo que quedó en el teléfono no incluye la huella de ninguna contraseña ajena
         huellas = self.local.bd.consultar("SELECT * FROM usuarios")
         self.assertTrue(all("clave_hash" not in f or not f["clave_hash"] for f in huellas))
+
+    def test_los_administradores_no_ingresan_a_la_app(self):
+        from services.seguridad import GestorClaves
+        repo = self.app.state.gestor.servidor
+        repo.bd.insertar("usuarios", {"correo": correo("admin.app"), "nombre": "Admin App", "rol": "admin",
+                                      "clave_hash": GestorClaves.generar_hash(CLAVE), "activo": 1, "colegio_id": 1})
+        resultado = self.auth.ingresar(correo("admin.app"), CLAVE)
+        self.assertFalse(resultado.exito)
+        self.assertIn("panel web", resultado.mensaje)
+        self.assertEqual(self.local.cantidad_pendientes(), 0)         # nada se descargó ni quedó guardado en el teléfono
 
     def test_ingreso_fallido_mensajes(self):
         mala = self.auth.ingresar(correo("andres.morales"), "otra")
@@ -226,6 +249,112 @@ class PruebasClienteHTTP(unittest.TestCase):
         self.assertTrue(sinc.sincronizar(None).sin_conexion)
         auth = ServicioAutenticacion(self.local, malo, sinc, self.monitor)
         self.assertFalse(auth.ingresar(correo("sofia.morales"), CLAVE).exito)   # nunca había ingresado: pide conexión
+
+
+@unittest.skipUnless(HAY_API, "uvicorn/FastAPI no están instalados (pip install -r backend/requirements.txt)")
+class PruebasGestionDesdeLaApp(_ServidorEnVivo, unittest.TestCase):
+    """La docente gestiona a sus estudiantes y las familias activan sus cuentas, todo desde la app.
+
+    Tiene su propio servidor porque estas pruebas CAMBIAN datos (agregan estudiantes, dan de baja...)."""
+
+    # ------------------------------------------------------------------ gestión de estudiantes y activación
+    def docente(self):
+        return self.auth.ingresar(correo("carolina.fuentes"), CLAVE).usuario
+
+    def curso(self, docente) -> int:
+        return int(self.datos_de(docente).cursos_docente()[0].id)
+
+    def datos_de(self, usuario):
+        self.datos.iniciar_sesion(usuario)
+        return self.datos
+
+    def test_la_docente_agrega_un_estudiante_y_la_familia_activa_sus_cuentas_desde_la_app(self):
+        docente = self.docente()
+        sufijo = secrets_hex()
+        est, apo = f"luis.{sufijo}@correo.cl", f"rosa.{sufijo}@correo.cl"
+        r = self.gestion.agregar_estudiante(docente, self.curso(docente), "  Luis   Pérez ", est, apo, "Rosa Pérez")
+        self.assertTrue(r.exito, r.mensaje)
+        self.assertEqual([c.rol for c in r.codigos], ["estudiante", "apoderado"])
+        self.assertIn(r.codigos[0].codigo, r.codigos[0].mensaje)                  # el texto listo para enviar trae el código
+        self.assertIn(est, r.codigos[0].mensaje)
+        self.assertIn("Colegio Demo", r.codigos[0].mensaje)
+        self.assertIn("Luis Pérez", [f.estudiante.nombre for f in self.datos.fichas_curso(self.curso(docente))])   # ya está en su lista
+
+        self.gestor.cerrar_sesion()
+        malo = self.auth.activar_cuenta(apo, "ZZZZZ-ZZZZZ", "Clave-larga-2026")
+        self.assertFalse(malo.exito)
+        self.assertIn("código", malo.mensaje)
+        entra = self.auth.activar_cuenta(apo, r.codigos[1].codigo.lower(), "Clave-larga-2026")
+        self.assertTrue(entra.exito, entra.mensaje)
+        self.assertEqual(entra.usuario.rol, "apoderado")
+        self.assertEqual([h.estudiante.nombre for h in self.datos_de(entra.usuario).hijos()], ["Luis Pérez"])
+        self.assertEqual(self.auth.ingresar(apo, "Clave-larga-2026").exito, True)   # y puede volver a entrar con su contraseña
+        reuso = self.auth.activar_cuenta(apo, r.codigos[1].codigo, "Otra-clave-larga-1")
+        self.assertFalse(reuso.exito)                                               # el código no sirve dos veces
+
+    def test_apoderado_existente_solo_se_vincula(self):
+        docente = self.docente()
+        r = self.gestion.agregar_estudiante(docente, self.curso(docente), "Pedro Pérez", f"pedro.{secrets_hex()}@correo.cl",
+                                            correo("andres.morales"))
+        self.assertTrue(r.exito, r.mensaje)
+        self.assertEqual([c.rol for c in r.codigos], ["estudiante"])                # a Andrés no se le toca la contraseña
+        self.assertEqual(r.apoderado_existente, "Andrés Morales")
+
+    def test_mensajes_claros_cuando_algo_falla(self):
+        docente = self.docente()
+        curso = self.curso(docente)
+        self.assertIn("correo", self.gestion.agregar_estudiante(docente, curso, "Ana Díaz", "no-es-correo").mensaje.lower())
+        self.assertIn("nombre", self.gestion.agregar_estudiante(docente, curso, "A", "a@b.cl").mensaje.lower())
+        sin_nombre = self.gestion.agregar_estudiante(docente, curso, "Ana Díaz", f"ana.{secrets_hex()}@b.cl",
+                                                     f"mama.{secrets_hex()}@b.cl")
+        self.assertFalse(sin_nombre.exito)
+        self.assertIn("nombre", sin_nombre.mensaje)                                  # el apoderado nuevo necesita nombre
+        otro_curso = self.gestion.agregar_estudiante(docente, 99999, "Ana Díaz", f"ana.{secrets_hex()}@b.cl")
+        self.assertFalse(otro_curso.exito)
+        self.monitor.forzado_sin_conexion = True
+        sin_red = self.gestion.agregar_estudiante(docente, curso, "Ana Díaz", f"ana.{secrets_hex()}@b.cl")
+        self.assertFalse(sin_red.exito)
+        self.assertIn("conexión", sin_red.mensaje)
+        self.assertEqual(self.local.cantidad_pendientes(), 0)                        # no se encola: las cuentas las crea el servidor
+
+    def test_baja_reactivar_y_lista_de_bajas(self):
+        docente = self.docente()
+        sofia = [f for f in self.datos.fichas_curso(self.curso(docente)) if f.estudiante.nombre == "Sofía Morales"][0]
+        r = self.gestion.dar_de_baja(docente, sofia.estudiante.id)
+        self.assertTrue(r.exito, r.mensaje)
+        self.assertNotIn("Sofía Morales", [f.estudiante.nombre for f in self.datos.fichas_curso(self.curso(docente))])
+        bajas = self.gestion.dados_de_baja(docente)
+        self.assertEqual([b["nombre"] for b in bajas.datos], ["Sofía Morales"])
+        self.assertTrue(self.gestion.reactivar(docente, sofia.estudiante.id).exito)
+        self.assertEqual(self.gestion.dados_de_baja(docente).datos, [])
+        self.assertIn("Sofía Morales", [f.estudiante.nombre for f in self.datos.fichas_curso(self.curso(docente))])
+
+    def test_codigo_nuevo_para_quien_olvido_su_contrasena(self):
+        docente = self.docente()
+        id_andres = int(self.app.state.gestor.servidor.usuario_por_correo(correo("andres.morales"))["id"])
+        andres = self.gestion.codigo_nuevo(docente, id_andres, "apoderado")
+        self.assertTrue(andres.exito, andres.mensaje)
+        self.assertEqual(self.auth.ingresar(correo("andres.morales"), CLAVE).exito, False)   # la anterior ya no sirve
+        self.gestor.cerrar_sesion()
+        self.assertTrue(self.auth.activar_cuenta(correo("andres.morales"), andres.codigos[0].codigo, "Clave-larga-2026").exito)
+
+    def test_sin_servidor_del_colegio_se_explica_que_falta_configurarlo(self):
+        (self.carpeta / "demo").mkdir()
+        demo = GestorServidor(ConfigServidor(motor="demo"), self.carpeta / "demo").inicializar()
+        gestion = ServicioGestion(demo, ServicioSincronizacion(self.local, demo), self.monitor, self.local)
+        self.assertFalse(gestion.disponible)
+        r = gestion.agregar_estudiante(type("U", (), {"nombre": "X", "colegio_id": 1})(), 1, "Ana Díaz", "ana@b.cl")
+        self.assertFalse(r.exito)
+        self.assertIn("servidor del colegio", r.mensaje)
+        auth = ServicioAutenticacion(self.local, demo, ServicioSincronizacion(self.local, demo), self.monitor)
+        self.assertIn("servidor del colegio", auth.activar_cuenta("ana@b.cl", "ABCDE-FGHJK", "Clave-larga-2026").mensaje)
+
+    def test_el_texto_para_enviar_a_la_familia(self):
+        texto = mensaje_invitacion("Rosa Pérez", "rosa@correo.cl", "ABCDE-FGHJK", "2026-11-15 10:00:00",
+                                   "Colegio San Andrés", "Carolina Fuentes")
+        for esperado in ("Hola Rosa", "Carolina Fuentes", "Colegio San Andrés", "rosa@correo.cl", "ABCDE-FGHJK",
+                         "15-11-2026", "una sola vez", "Tengo un código"):
+            self.assertIn(esperado, texto)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,6 @@
+{
+  "name": "tutor-educa-panel-pruebas",
+  "private": true,
+  "description": "Prueba de punta a punta del panel web con jsdom (opcional: sin esto la prueba se omite).",
+  "devDependencies": { "jsdom": "^25.0.0" }
+}

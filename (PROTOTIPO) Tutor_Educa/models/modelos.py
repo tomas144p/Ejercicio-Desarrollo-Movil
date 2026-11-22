@@ -22,6 +22,8 @@ from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import ClassVar, Optional
 
+from services.calendario import ResumenAsistencia
+
 # Promedio bajo el cual el docente ve a un estudiante como "necesita refuerzo".
 UMBRAL_REFUERZO = 5.0
 UMBRAL_TENDENCIA = 0.3   # cuánto debe cambiar la última nota para hablar de "sube" o "baja"
@@ -50,8 +52,13 @@ class Rol:
     ESTUDIANTE = "estudiante"
     DOCENTE = "docente"
     APODERADO = "apoderado"
-    TODOS = (ESTUDIANTE, DOCENTE, APODERADO)
-    NOMBRES = {ESTUDIANTE: "Estudiante", DOCENTE: "Docente", APODERADO: "Apoderado/a"}
+    ADMIN = "admin"              # administra UN colegio (cuentas, cursos)
+    SUPERADMIN = "superadmin"    # administra la plataforma: crea colegios y sus primeros administradores
+    TODOS = (ESTUDIANTE, DOCENTE, APODERADO)          # los perfiles que usan la app del celular
+    ADMINISTRATIVOS = (ADMIN, SUPERADMIN)             # se manejan desde el panel web, no desde la app
+    PERFILES = TODOS + ADMINISTRATIVOS
+    NOMBRES = {ESTUDIANTE: "Estudiante", DOCENTE: "Docente", APODERADO: "Apoderado/a",
+               ADMIN: "Administrador/a", SUPERADMIN: "Superadministrador/a"}
 
 
 @dataclass
@@ -61,6 +68,7 @@ class Usuario:
     id: int
     correo: str
     nombre: str
+    colegio_id: Optional[int] = None    # a qué colegio pertenece (el servidor filtra todo por este dato)
 
     ROL: ClassVar[str] = ""
     PANTALLA_INICIO: ClassVar[str] = "ingreso"
@@ -90,11 +98,14 @@ class Usuario:
         Es la razón por la que basta el correo para saber a qué pantalla
         entra cada persona: la base de datos guarda el rol de cada correo.
         """
-        clases = {Rol.ESTUDIANTE: Estudiante, Rol.DOCENTE: Docente, Rol.APODERADO: Apoderado}
+        clases = {Rol.ESTUDIANTE: Estudiante, Rol.DOCENTE: Docente, Rol.APODERADO: Apoderado,
+                  Rol.ADMIN: Administrador, Rol.SUPERADMIN: SuperAdministrador}
         clase = clases.get(fila.get("rol")) # type: ignore
         if clase is None:
             raise ValueError(f"Rol desconocido: {fila.get('rol')!r}")
-        return clase(id=int(fila["id"]), correo=fila["correo"], nombre=fila["nombre"])
+        colegio = fila.get("colegio_id")
+        return clase(id=int(fila["id"]), correo=fila["correo"], nombre=fila["nombre"],
+                     colegio_id=int(colegio) if colegio is not None else None)
 
 
 @dataclass
@@ -113,6 +124,18 @@ class Docente(Usuario):
 class Apoderado(Usuario):
     ROL: ClassVar[str] = Rol.APODERADO
     PANTALLA_INICIO: ClassVar[str] = "apoderado"
+
+
+@dataclass
+class Administrador(Usuario):
+    """Administra un colegio. No tiene pantalla en la app: usa el panel web."""
+    ROL: ClassVar[str] = Rol.ADMIN
+
+
+@dataclass
+class SuperAdministrador(Usuario):
+    """Administra la plataforma completa (no pertenece a ningún colegio)."""
+    ROL: ClassVar[str] = Rol.SUPERADMIN
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +217,8 @@ class Curso:
     nivel: str
     docente_id: int
     anio: int = 2026
+    colegio_id: Optional[int] = None
+    clases_sabado: bool = False     # ¿el curso tiene clases los sábados? (el domingo nunca)
 
 
 @dataclass
@@ -452,8 +477,10 @@ class FichaEstudiante:
 
     estudiante: Estudiante
     curso: Optional[Curso] = None
-    asistencia: int = 0
+    asistencia: int = 0                                  # porcentaje: calculado con la lista diaria o, si aún no hay, el fijo
+    resumen_asistencia: Optional[ResumenAsistencia] = None   # None = todavía no se ha pasado lista en su curso
     apoderado_nombre: str = ""
+    apoderado_id: Optional[int] = None
     calificaciones: list[Calificacion] = field(default_factory=list)
     refuerzos: list[Refuerzo] = field(default_factory=list)
     intentos: list[Intento] = field(default_factory=list)
@@ -486,6 +513,11 @@ class FichaEstudiante:
         asignaturas = sorted({c.asignatura_id for c in self.calificaciones})
         promedios = [self.promedio(a) for a in asignaturas]
         return promedio([p for p in promedios if p is not None])
+
+    @property
+    def asistencia_calculada(self) -> bool:
+        """True si el porcentaje sale de la lista diaria (y no del número fijo de antes)."""
+        return bool(self.resumen_asistencia and self.resumen_asistencia.hay_datos)
 
     @property
     def necesita_refuerzo(self) -> bool:

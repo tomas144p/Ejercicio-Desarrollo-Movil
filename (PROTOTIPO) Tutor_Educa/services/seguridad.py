@@ -51,3 +51,45 @@ class GestorClaves:
         crudo = hashlib.pbkdf2_hmac("sha256", clave.encode("utf-8"),
                                     sal.encode("utf-8"), iteraciones)
         return base64.b64encode(crudo).decode("ascii").rstrip("=")
+
+
+# ---------------------------------------------------------------------------
+# Cuentas por invitación
+# ---------------------------------------------------------------------------
+CLAVE_PENDIENTE = "!pendiente"
+"""
+Marca que se guarda en lugar de la huella cuando la cuenta aún no tiene contraseña (esperando que su dueña use el
+código de invitación). No tiene el formato de una huella, así que ninguna contraseña puede coincidir con ella.
+"""
+
+
+class CodigosInvitacion:
+    """
+    Códigos de un solo uso para activar una cuenta (o cambiar la contraseña) sin que nadie conozca la contraseña ajena.
+
+    Formato ``ABCDE-FGHJK`` (10 caracteres, ~50 bits). Usa el alfabeto de Crockford, sin letras que se confunden
+    (I, L, O, U). En la base de datos solo se guarda la huella SHA-256: ni siquiera el servidor puede volver a mostrarlo.
+    """
+
+    ALFABETO = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+    LARGO = 10
+
+    @classmethod
+    def generar(cls) -> str:
+        letras = "".join(secrets.choice(cls.ALFABETO) for _ in range(cls.LARGO))
+        return f"{letras[:5]}-{letras[5:]}"
+
+    @classmethod
+    def normalizar(cls, codigo: str) -> str:
+        """Mayúsculas, sin guiones ni espacios, y corrigiendo confusiones típicas (O→0, I/L→1)."""
+        limpio = "".join(c for c in (codigo or "").upper() if c.isalnum())
+        return limpio.translate(str.maketrans({"O": "0", "I": "1", "L": "1"}))
+
+    @classmethod
+    def huella(cls, codigo: str) -> str:
+        return hashlib.sha256(cls.normalizar(codigo).encode("utf-8")).hexdigest()
+
+    @classmethod
+    def tiene_formato(cls, codigo: str) -> bool:
+        normal = cls.normalizar(codigo)
+        return len(normal) == cls.LARGO and all(c in cls.ALFABETO for c in normal)

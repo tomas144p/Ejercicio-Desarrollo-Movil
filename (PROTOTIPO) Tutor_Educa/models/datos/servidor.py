@@ -12,6 +12,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 from services.configuracion import ConfigServidor
@@ -30,6 +31,7 @@ class PaqueteDatos:
     usuario_id: int
     estudiante_ids: list[int] = field(default_factory=list)
     curso_ids: list[int] = field(default_factory=list)
+    colegios: list[dict] = field(default_factory=list)
     usuarios: list[dict] = field(default_factory=list)
     cursos: list[dict] = field(default_factory=list)
     estudiantes: list[dict] = field(default_factory=list)
@@ -38,6 +40,9 @@ class PaqueteDatos:
     intentos: list[dict] = field(default_factory=list)
     avisos: list[dict] = field(default_factory=list)
     lecturas: list[dict] = field(default_factory=list)
+    asistencia_dias: list[dict] = field(default_factory=list)   # días en que se pasó lista (por curso)
+    asistencia: list[dict] = field(default_factory=list)        # inasistencias de los estudiantes del paquete
+    eventos: list[dict] = field(default_factory=list)           # eventos y feriados del colegio y de sus cursos
     asignaturas: list[dict] = field(default_factory=list)
     temas: list[dict] = field(default_factory=list)
     ejemplos: list[dict] = field(default_factory=list)
@@ -51,6 +56,30 @@ class ServidorRemoto(RepositorioTutor):
         super().__init__(conexion)
         self.nombre = nombre
         self.es_demo = es_demo
+        self.reloj_utc = None          # solo para pruebas: función que entrega la hora (UTC) en vez del reloj real
+
+    # --- Reloj del servidor ---------------------------------------------------------------------------
+    CLAVE_HORA_VISTA = "ultima_hora_utc"
+    FORMATO_HORA_VISTA = "%Y-%m-%d %H:%M:%S"
+
+    def ahora_utc(self) -> datetime:
+        """La hora del servidor (UTC). Es la ÚNICA fuente de hora para fechas de «hoy» y de registro."""
+        return self.reloj_utc() if self.reloj_utc else datetime.now(timezone.utc)
+
+    def ultima_hora_vista(self) -> datetime | None:
+        """La hora más reciente que este servidor ha visto en su reloj (guardada en la base, sobrevive a reinicios)."""
+        texto = self.bd.valor("SELECT valor FROM estado_servidor WHERE clave = ?", (self.CLAVE_HORA_VISTA,), None)
+        if not texto:
+            return None
+        try:
+            return datetime.strptime(str(texto), self.FORMATO_HORA_VISTA).replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+
+    def anotar_hora_vista(self, ahora: datetime) -> None:
+        self.bd.insertar("estado_servidor", {"clave": self.CLAVE_HORA_VISTA,
+                                             "valor": ahora.astimezone(timezone.utc).strftime(self.FORMATO_HORA_VISTA)},
+                         reemplazar=True)
 
     def probar(self) -> bool:
         """True si el servidor responde."""
@@ -74,44 +103,69 @@ class ServidorRemoto(RepositorioTutor):
         return fila, ""
 
     def paquete_para(self, usuario: Usuario) -> PaqueteDatos:
-        """Reúne solo los datos que le corresponden a ese usuario según su rol."""
+        """
+        Reúne solo los datos que le corresponden a ese usuario según su rol Y su colegio.
+
+        Cada consulta lleva el colegio de la persona: aunque alguien dejara un dato mal enlazado en la base
+        (un estudiante de un colegio apuntando al curso de otro, por ejemplo), no se mezcla ni se envía.
+        Una cuenta sin colegio no recibe datos de personas (solo la materia).
+        """
+        bd = self.bd
+        colegio_id = usuario.colegio_id
+        paquete = PaqueteDatos(usuario_id=usuario.id)
+        if colegio_id is not None:
+            self._datos_del_colegio(paquete, usuario, int(colegio_id))
+        for tabla in ("asignaturas", "temas", "ejemplos", "preguntas"):
+            setattr(paquete, tabla, bd.consultar(f"SELECT * FROM {tabla}"))
+        return paquete
+
+    def _datos_del_colegio(self, paquete: PaqueteDatos, usuario: Usuario, colegio_id: int) -> None:
         bd = self.bd
         if usuario.rol == Rol.ESTUDIANTE:
-            fila = bd.consultar_uno("SELECT * FROM estudiantes WHERE usuario_id = ?", (usuario.id,))
+            fila = bd.consultar_uno("SELECT e.usuario_id, e.curso_id FROM estudiantes e "
+                                    "JOIN cursos c ON c.id = e.curso_id "
+                                    "WHERE e.usuario_id = ? AND c.colegio_id = ?", (usuario.id, colegio_id))
             estudiante_ids = [usuario.id] if fila else []
             curso_ids = [int(fila["curso_id"])] if fila else []
         elif usuario.rol == Rol.DOCENTE:
-            curso_ids = [int(f["id"]) for f in bd.consultar("SELECT id FROM cursos WHERE docente_id = ?",
-                                                             (usuario.id,))]
-            estudiante_ids = [int(f["usuario_id"]) for f in
-                              self._en("SELECT usuario_id FROM estudiantes WHERE curso_id IN ({})", curso_ids)]
+            curso_ids = [int(f["id"]) for f in bd.consultar(
+                "SELECT id FROM cursos WHERE docente_id = ? AND colegio_id = ?", (usuario.id, colegio_id))]
+            estudiante_ids = [int(f["usuario_id"]) for f in self._en(
+                "SELECT e.usuario_id FROM estudiantes e JOIN usuarios u ON u.id = e.usuario_id "
+                "WHERE e.curso_id IN ({}) AND u.colegio_id = ? AND u.activo = 1", curso_ids, (colegio_id,))]
         else:
-            filas = bd.consultar("SELECT usuario_id, curso_id FROM estudiantes WHERE apoderado_id = ?",
-                                 (usuario.id,))
+            filas = bd.consultar(
+                "SELECT e.usuario_id, e.curso_id FROM estudiantes e "
+                "JOIN cursos c ON c.id = e.curso_id JOIN usuarios u ON u.id = e.usuario_id "
+                "WHERE e.apoderado_id = ? AND c.colegio_id = ? AND u.colegio_id = ? AND u.activo = 1",
+                (usuario.id, colegio_id, colegio_id))
             estudiante_ids = [int(f["usuario_id"]) for f in filas]
             curso_ids = sorted({int(f["curso_id"]) for f in filas})
 
-        paquete = PaqueteDatos(usuario_id=usuario.id, estudiante_ids=estudiante_ids, curso_ids=curso_ids)
-        paquete.cursos = self._en("SELECT * FROM cursos WHERE id IN ({})", curso_ids)
+        paquete.estudiante_ids, paquete.curso_ids = estudiante_ids, curso_ids
+        paquete.colegios = bd.consultar("SELECT * FROM colegios WHERE id = ?", (colegio_id,))
+        paquete.cursos = self._en("SELECT * FROM cursos WHERE id IN ({}) AND colegio_id = ?", curso_ids, (colegio_id,))
         paquete.estudiantes = self._en("SELECT * FROM estudiantes WHERE usuario_id IN ({})", estudiante_ids)
         ids = {usuario.id, *estudiante_ids}
         ids |= {int(c["docente_id"]) for c in paquete.cursos}
         ids |= {int(e["apoderado_id"]) for e in paquete.estudiantes if e["apoderado_id"]}
-        # Nunca se envían las contraseñas de otras personas al teléfono.
-        paquete.usuarios = self._en("SELECT id, correo, nombre, rol, activo, creado_en FROM usuarios "
-                                    "WHERE id IN ({})", sorted(ids))
+        # Nunca se envían las contraseñas de otras personas al teléfono, ni personas de otro colegio.
+        paquete.usuarios = self._en("SELECT id, correo, nombre, rol, activo, creado_en, colegio_id FROM usuarios "
+                                    "WHERE id IN ({}) AND colegio_id = ?", sorted(ids), (colegio_id,))
         paquete.calificaciones = self._en("SELECT * FROM calificaciones WHERE estudiante_id IN ({})", estudiante_ids)
         paquete.refuerzos = self._en("SELECT * FROM refuerzos WHERE estudiante_id IN ({})", estudiante_ids)
         paquete.intentos = self._en("SELECT * FROM intentos WHERE estudiante_id IN ({})", estudiante_ids)
+        # Calendario: solo los días con lista de SUS cursos, las inasistencias de SUS estudiantes y los eventos de
+        # SU colegio (los de todo el colegio y los de sus cursos). Nada de otros colegios ni de otros cursos.
+        paquete.asistencia_dias = self._en("SELECT * FROM asistencia_dias WHERE curso_id IN ({})", curso_ids)
+        paquete.asistencia = self._en("SELECT * FROM asistencia WHERE estudiante_id IN ({})", estudiante_ids)
+        paquete.eventos = self.eventos_del_colegio(colegio_id, curso_ids)
         if usuario.rol == Rol.DOCENTE:
             paquete.avisos = self.avisos(curso_ids)
             paquete.lecturas = self.lecturas([int(a["id"]) for a in paquete.avisos])
         else:
             paquete.avisos = self.avisos(curso_ids, estudiante_ids)
             paquete.lecturas = bd.consultar("SELECT * FROM avisos_leidos WHERE usuario_id = ?", (usuario.id,))
-        for tabla in ("asignaturas", "temas", "ejemplos", "preguntas"):
-            setattr(paquete, tabla, bd.consultar(f"SELECT * FROM {tabla}"))
-        return paquete
 
     def aplicar_cambio(self, tipo: str, datos: dict) -> None:
         """Aplica en el servidor un cambio que se hizo en el teléfono (cola de sincronización)."""
@@ -128,6 +182,17 @@ class ServidorRemoto(RepositorioTutor):
             aviso = self.aviso_por_codigo(datos["aviso_codigo"])
             if aviso:
                 self.marcar_aviso_leido(int(aviso["id"]), datos["usuario_id"], datos["fecha"])
+        elif tipo == "asistencia_dia":
+            self.guardar_asistencia_dia(datos["curso_id"], datos["fecha"], datos["ausentes"], datos["justificados"],
+                                        datos.get("docente_id"), datos["registrado_en"])
+        elif tipo == "evento":
+            self.publicar_evento(datos)
+        elif tipo == "evento_baja":
+            self.dar_de_baja_evento(datos["codigo"])
+        elif tipo == "curso_sabado":
+            self.cambiar_sabado_curso(datos["curso_id"], bool(datos["clases_sabado"]))
+        elif tipo == "error_app":
+            self.registrar_error_app(datos)
         else:
             raise ValueError(f"Tipo de cambio desconocido: {tipo}")
 
@@ -217,14 +282,63 @@ class GestorServidor:
             conexion.cerrar()
             raise ErrorConexion(f"La base '{c.base_datos}' no tiene tablas: importa "
                                 "database/tutor_educa_mysql.sql en phpMyAdmin.")
+        tiene_colegios = conexion.valor("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ? "
+                                        "AND table_name = 'colegios'", (c.base_datos,), 0)
+        if not tiene_colegios:
+            conexion.cerrar()
+            raise ErrorConexion(f"La base '{c.base_datos}' es de una versión anterior (sin colegios): vuelve a "
+                                "importar database/tutor_educa_mysql.sql o aplica database/migracion_colegios.sql.")
         return ServidorRemoto(conexion, "MySQL", es_demo=False)
 
     def _abrir_demo(self) -> ServidorRemoto:
-        conexion = ConexionSQLite(self.carpeta / "servidor_demo.db", claves_foraneas=True)
+        archivo = self.carpeta / "servidor_demo.db"
+        conexion = ConexionSQLite(archivo, claves_foraneas=True)
+        if self._demo_sin_perfiles_nuevos(conexion):
+            # SQLite no permite cambiar la restricción de la columna «rol»: la base de demostración (que solo trae
+            # datos de ejemplo) se aparta con otro nombre y se crea de nuevo con el esquema actual.
+            conexion.cerrar()
+            archivo.replace(archivo.with_name("servidor_demo.antigua.db"))
+            conexion = ConexionSQLite(archivo, claves_foraneas=True)
         crear_esquema(conexion, incluir_locales=False, claves_foraneas=True)
         if not conexion.valor("SELECT COUNT(*) FROM usuarios", defecto=0):
             conexion.insertar_tablas(DatosIniciales().todo())
+        self._asignar_colegio_demo(conexion)
+        self._sembrar_calendario_demo(conexion)
         return ServidorRemoto(conexion, "Demostración", es_demo=True)
+
+    @staticmethod
+    def _sembrar_calendario_demo(conexion) -> None:
+        """Una base de demostración creada antes del calendario recibe su asistencia y sus eventos de ejemplo
+        (solo si todavía no tiene ninguno y es el curso de demostración)."""
+        if conexion.valor("SELECT COUNT(*) FROM asistencia_dias", defecto=0) \
+                or conexion.valor("SELECT COUNT(*) FROM eventos", defecto=0) \
+                or not conexion.valor("SELECT COUNT(*) FROM cursos WHERE id = 1 AND colegio_id = 1", defecto=0):
+            return
+        datos = DatosIniciales().calendario()
+        try:
+            conexion.insertar_tablas({tabla: filas for tabla, filas in datos.items()})
+        except Exception as error:         # una base de demostración antigua con otros datos: se deja como está
+            print(f"[demo] No se pudo cargar el calendario de ejemplo: {error}")
+
+    @staticmethod
+    def _demo_sin_perfiles_nuevos(conexion) -> bool:
+        """True si la tabla usuarios ya existe pero su restricción de «rol» no admite administradores."""
+        fila = conexion.consultar_uno("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'usuarios'")
+        return bool(fila) and "'superadmin'" not in (fila["sql"] or "")
+
+    @staticmethod
+    def _asignar_colegio_demo(conexion) -> None:
+        """Una base de demostración creada antes de que existieran los colegios queda en «Colegio Demo»."""
+        huerfanos = (conexion.valor("SELECT COUNT(*) FROM usuarios WHERE colegio_id IS NULL", defecto=0)
+                     + conexion.valor("SELECT COUNT(*) FROM cursos WHERE colegio_id IS NULL", defecto=0))
+        if not huerfanos:
+            return
+        if not conexion.valor("SELECT COUNT(*) FROM colegios", defecto=0):
+            conexion.insertar("colegios", {"id": 1, "nombre": "Colegio Demo", "activo": 1,
+                                           "creado_en": DatosIniciales().fecha_hora_actual()})
+        primero = conexion.valor("SELECT MIN(id) FROM colegios", defecto=1)
+        conexion.ejecutar("UPDATE usuarios SET colegio_id = ? WHERE colegio_id IS NULL", (primero,))
+        conexion.ejecutar("UPDATE cursos SET colegio_id = ? WHERE colegio_id IS NULL", (primero,))
 
     def disponible(self) -> bool:
         """Comprueba si el servidor responde (reintenta MySQL cada 20 s si estaba caído)."""

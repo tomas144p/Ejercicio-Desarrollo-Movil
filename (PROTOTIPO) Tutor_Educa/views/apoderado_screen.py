@@ -3,6 +3,7 @@ Pantalla principal del apoderado.
 
 Pestañas:
 - Resumen: cómo va su estudiante en todas las asignaturas.
+- Calendario: asistencia día a día, feriados y eventos del curso.
 - Refuerzos: temas desbloqueados por la docente e ideas para apoyar en casa.
 - Avisos: mensajes de la docente (con contador de no leídos).
 - Asistente: chat con IA para orientar a la familia (solo con internet).
@@ -15,12 +16,15 @@ from kivy.uix.stacklayout import StackLayout
 from kivy.uix.widget import Widget
 
 from models.modelos import EscalaNotas, EstadoRefuerzo
+from services import calendario
+from views.calendario_vista import CalendarioMes, lista_eventos, tarjeta_asistencia
 from views.componentes import (Avatar, BarraProgreso, Boton, CajaNota, Chip, Columna, EstadoVacio, Etiqueta, Fila,
                             FilaLista, Icono, InsigniaIcono, Metrica, Separador, Superficie, TarjetaTocable, Texto,
                             encabezado_seccion, leyenda_notas)
 from views.dialogos import Dialogo
 from views.estilo import FormatoTexto, Paleta, Tipografia, color
 from views.base_screen import PantallaConPestanas
+from views.tarjeta_efecto import tarjeta_efecto
 
 CENTRO = {"center_y": 0.5}
 PREGUNTAS_FRECUENTES = ["¿Cómo va en sus notas?", "¿Qué está reforzando?", "¿Cómo lo apoyo en casa?",
@@ -28,18 +32,21 @@ PREGUNTAS_FRECUENTES = ["¿Cómo va en sus notas?", "¿Qué está reforzando?", 
 
 
 class PantallaApoderado(PantallaConPestanas):
-    PESTANAS = [("resumen", "Resumen", "house"), ("refuerzos", "Refuerzos", "book-open"),
-                ("avisos", "Avisos", "bell"), ("asistente", "Asistente", "bot")]
+    PESTANAS = [("resumen", "Resumen", "house"), ("calendario", "Calendario", "calendar-days"),
+                ("refuerzos", "Refuerzos", "book-open"), ("avisos", "Avisos", "bell"),
+                ("asistente", "Asistente", "bot")]
     ACENTO = Paleta.MORA
 
     def __init__(self, app, **kwargs):
         super().__init__(app, **kwargs)
         self.hijo_id = None
         self.hijos, self.ficha, self.avisos = [], None, []
+        self._mes_calendario = None
 
     def reiniciar(self) -> None:
         super().reiniciar()
         self.hijo_id = None
+        self._mes_calendario = None
 
     def actualizar(self) -> None:
         if self.app.usuario is None:
@@ -56,7 +63,8 @@ class PantallaApoderado(PantallaConPestanas):
         return f"Hola, {self.app.usuario.primer_nombre}"
 
     def subtitulo(self) -> str:
-        return f"Apoderado/a de {self.ficha.estudiante.primer_nombre}" if self.ficha else "Apoderado/a"
+        return self.con_colegio(f"Apoderado/a de {self.ficha.estudiante.primer_nombre}" if self.ficha
+                                else "Apoderado/a")
 
     def actualizar_insignias(self) -> None:
         self.barra_inferior.insignia("avisos", sum(1 for a in self.avisos if not a.leido))
@@ -70,10 +78,7 @@ class PantallaApoderado(PantallaConPestanas):
         return False
 
     # ------------------------------------------------------------------
-    def pestana_resumen(self, c) -> None:
-        if self._sin_datos(c):
-            return
-        ficha = self.ficha
+    def _selector_hijos(self, c) -> None:
         if len(self.hijos) > 1:
             selector = StackLayout(orientation="lr-tb", size_hint_y=None, spacing=dp(8))
             selector.bind(minimum_height=selector.setter("height"))
@@ -82,6 +87,35 @@ class PantallaApoderado(PantallaConPestanas):
                                             acento=self.ACENTO,
                                             al_presionar=lambda e=hijo.estudiante.id: self._elegir_hijo(e)))
             c.add_widget(selector)
+
+    def pestana_calendario(self, c) -> None:
+        if self._sin_datos(c):
+            return
+        ficha = self.ficha
+        self._selector_hijos(c)
+        if not self.app.en_linea:
+            c.add_widget(CajaNota("Sin conexión", "Estás viendo los datos de la última sincronización.",
+                                  icono="wifi-off", tinta=Paleta.AMBAR))
+        c.add_widget(tarjeta_asistencia(ficha, self.ACENTO))
+        vista = self.app.datos.calendario_estudiante(ficha)
+        if vista is None:
+            return
+        hoy = self.app.datos.hoy()
+        tarjeta = Superficie(spacing=dp(10))
+        tarjeta.add_widget(Texto(f"Calendario de {ficha.estudiante.primer_nombre}", tamano=16, fuente=Tipografia.SEMI))
+        tarjeta.add_widget(CalendarioMes(vista, hoy, "alumno", self.ACENTO, mes=self._mes_calendario,
+                                         al_cambiar_mes=lambda mes: setattr(self, "_mes_calendario", mes)))
+        tarjeta.add_widget(Texto("Toca un día para ver el detalle. Los feriados y los días sin clases no cuentan "
+                                 "en la asistencia.", tamano=12, color_texto=Paleta.TINTA_TENUE))
+        c.add_widget(tarjeta)
+        c.add_widget(lista_eventos(vista, hoy, self.ACENTO, "Próximos eventos del curso"))
+
+    # ------------------------------------------------------------------
+    def pestana_resumen(self, c) -> None:
+        if self._sin_datos(c):
+            return
+        ficha = self.ficha
+        self._selector_hijos(c)
         if not self.app.en_linea:
             c.add_widget(CajaNota("Sin conexión", "Estás viendo los datos de la última sincronización.",
                                     icono="wifi-off", tinta=Paleta.AMBAR))
@@ -107,6 +141,7 @@ class PantallaApoderado(PantallaConPestanas):
         tarjeta.add_widget(Etiqueta(EscalaNotas.mensaje(general), tinta=tinta_general, fondo=fondo_general,
                                     icono="circle-check" if general is not None else ""))
         c.add_widget(tarjeta)
+        c.add_widget(tarjeta_efecto(self.app.datos.metricas_de(ficha), "apoderado", ficha.estudiante.primer_nombre))
 
         no_leidos = sum(1 for a in self.avisos if not a.leido)
         if no_leidos:
@@ -134,6 +169,8 @@ class PantallaApoderado(PantallaConPestanas):
             lista.add_widget(fila)
         c.add_widget(lista)
         c.add_widget(leyenda_notas())
+        c.add_widget(Boton("Calculadora de notas", icono="calculator", variante="contorno", acento=self.ACENTO, alto=44,
+                           tamano=14, al_presionar=lambda: self.app.ir_a("calculadora")))
 
         c.add_widget(encabezado_seccion("Lo que está reforzando"))
         if not activos:
@@ -234,8 +271,11 @@ class PantallaApoderado(PantallaConPestanas):
         Sin conexión la confirmación queda en la cola y se envía a la docente cuando vuelva internet.
         """
         tinta, _fondo, icono, _nombre = Paleta.POR_TIPO_AVISO.get(aviso.tipo, Paleta.POR_TIPO_AVISO["info"])
+        ir_a_refuerzos = [("Ver refuerzos", lambda: self.cambiar_pestana("refuerzos"), "contorno", "book-open")] \
+            if aviso.tipo == "refuerzo" else []
         if aviso.leido:
-            Dialogo.informar(aviso.titulo, aviso.cuerpo, icono=icono, tinta=tinta)
+            Dialogo(aviso.titulo, aviso.cuerpo, icono=icono, tinta=tinta,
+                    botones=[("Cerrar", None, "contorno")] + ir_a_refuerzos).open()
             return
 
         def confirmar():
@@ -244,7 +284,8 @@ class PantallaApoderado(PantallaConPestanas):
             self.dibujar_pestana(conservar_posicion=True)
 
         Dialogo(aviso.titulo, aviso.cuerpo, icono=icono, tinta=tinta,
-                botones=[("Cerrar", None, "contorno"), ("Recibido", confirmar, "primario", "thumbs-up")]).open()
+                botones=[("Cerrar", None, "contorno")] + ir_a_refuerzos
+                        + [("Recibido", confirmar, "primario", "thumbs-up")]).open()
 
     # ------------------------------------------------------------------
     def pestana_asistente(self, c) -> None:

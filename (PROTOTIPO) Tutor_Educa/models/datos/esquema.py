@@ -67,7 +67,8 @@ class Tabla:
     clave_compuesta: tuple = ()
     indices: tuple = ()
     comentario: str = ""
-    solo_local: bool = False   # tablas que existen solo en el teléfono
+    solo_local: bool = False       # tablas que existen solo en el teléfono
+    solo_servidor: bool = False    # tablas que NUNCA van al teléfono (por ejemplo, las invitaciones)
 
     @property
     def nombres_columnas(self) -> list[str]:
@@ -99,22 +100,44 @@ class Tabla:
 C = Columna  # abreviatura para que las definiciones se lean como una tabla
 
 TABLAS: tuple[Tabla, ...] = (
+    Tabla("colegios", (
+        C("id", "pk"),
+        C("nombre", "cadena", 120, nulo=False, unico=True),
+        C("activo", "entero", nulo=False, defecto=1),
+        C("creado_en", "fecha_hora"),
+    ), comentario="Cada colegio es un espacio separado: sus cursos, docentes, estudiantes y apoderados no se mezclan"),
     Tabla("usuarios", (
         C("id", "pk"),
         C("correo", "cadena", 120, nulo=False, unico=True),
         C("nombre", "cadena", 120, nulo=False),
-        C("rol", "cadena", 20, nulo=False, opciones=("estudiante", "docente", "apoderado")),
+        C("rol", "cadena", 20, nulo=False,
+          opciones=("estudiante", "docente", "apoderado", "admin", "superadmin")),
         C("clave_hash", "cadena", 200, nulo=False),
         C("activo", "entero", nulo=False, defecto=1),
         C("creado_en", "fecha_hora"),
-    ), comentario="Cuentas de ingreso. El rol define la pantalla de inicio"),
+        C("colegio_id", "entero", referencia="colegios(id)"),
+    ), indices=("colegio_id",),
+        comentario="Cuentas de ingreso. El rol define la pantalla de inicio; colegio_id, a qué colegio pertenece"),
+    Tabla("invitaciones", (
+        C("id", "pk"),
+        C("usuario_id", "entero", nulo=False, referencia="usuarios(id)"),
+        C("codigo_hash", "cadena", 64, nulo=False, unico=True),
+        C("creada_por", "entero", referencia="usuarios(id)"),
+        C("creado_en", "fecha_hora"),
+        C("vence_en", "fecha_hora", nulo=False),
+        C("usada_en", "fecha_hora"),
+    ), indices=("usuario_id",), solo_servidor=True,
+        comentario="Códigos de un solo uso para activar una cuenta o cambiar la contraseña; solo se guarda su huella"),
     Tabla("cursos", (
         C("id", "pk"),
         C("nombre", "cadena", 60, nulo=False),
         C("nivel", "cadena", 40, nulo=False),
         C("docente_id", "entero", nulo=False, referencia="usuarios(id)"),
         C("anio", "entero", nulo=False, defecto=2026),
-    ), comentario="Cursos y su docente a cargo"),
+        C("colegio_id", "entero", nulo=False, referencia="colegios(id)"),
+        C("clases_sabado", "entero", nulo=False, defecto=0),
+    ), indices=("colegio_id",),
+        comentario="Cursos, su docente a cargo y el colegio al que pertenecen. clases_sabado: 1 si el curso tiene clases los sábados"),
     Tabla("estudiantes", (
         C("usuario_id", "entero", nulo=False, clave_primaria=True, referencia="usuarios(id)", en_cascada=True),
         C("curso_id", "entero", nulo=False, referencia="cursos(id)"),
@@ -213,6 +236,60 @@ TABLAS: tuple[Tabla, ...] = (
         C("usuario_id", "entero", nulo=False, referencia="usuarios(id)", en_cascada=True),
         C("leido_en", "fecha_hora", nulo=False),
     ), clave_compuesta=("aviso_id", "usuario_id"), comentario="Qué apoderado leyó cada aviso"),
+    Tabla("asistencia_dias", (
+        C("curso_id", "entero", nulo=False, referencia="cursos(id)", en_cascada=True),
+        C("fecha", "fecha", nulo=False),
+        C("registrado_por", "entero", referencia="usuarios(id)"),
+        C("registrado_en", "fecha_hora"),
+    ), clave_compuesta=("curso_id", "fecha"),
+        comentario="Días en que se pasó lista en cada curso. Un día sin fila aquí no cuenta para la asistencia"),
+    Tabla("asistencia", (
+        C("id", "pk"),
+        C("estudiante_id", "entero", nulo=False, referencia="estudiantes(usuario_id)", en_cascada=True),
+        C("fecha", "fecha", nulo=False),
+        C("estado", "cadena", 12, nulo=False, opciones=("ausente", "justificado")),
+        C("registrado_por", "entero", referencia="usuarios(id)"),
+        C("registrado_en", "fecha_hora"),
+    ), unicos=(("estudiante_id", "fecha"),), indices=("estudiante_id",),
+        comentario="Solo las excepciones: quién faltó ese día. En un día con lista, quien no aparece aquí estuvo presente"),
+    Tabla("eventos", (
+        C("id", "pk"),
+        C("codigo", "cadena", 40, nulo=False, unico=True),
+        C("colegio_id", "entero", nulo=False, referencia="colegios(id)"),
+        C("curso_id", "entero", referencia="cursos(id)", en_cascada=True),
+        C("titulo", "cadena", 120, nulo=False),
+        C("descripcion", "texto"),
+        C("tipo", "cadena", 12, nulo=False, defecto="otro",
+          opciones=("feriado", "sin_clases", "celebracion", "evaluacion", "reunion", "otro")),
+        C("fecha_inicio", "fecha", nulo=False),
+        C("fecha_fin", "fecha", nulo=False),
+        C("hay_clases", "entero", nulo=False, defecto=1),
+        C("creado_por", "entero", referencia="usuarios(id)"),
+        C("creado_en", "fecha_hora"),
+        C("activo", "entero", nulo=False, defecto=1),
+    ), indices=("colegio_id", "curso_id", "fecha_inicio"),
+        comentario="Eventos y feriados. curso_id NULL = todo el colegio. Un evento con hay_clases=0 no permite pasar lista"),
+    Tabla("errores_app", (
+        C("id", "pk"),
+        C("codigo", "cadena", 40, nulo=False, unico=True),
+        C("colegio_id", "entero", referencia="colegios(id)"),
+        C("rol", "cadena", 20),
+        C("creado_en", "fecha_hora", nulo=False),
+        C("recibido_en", "fecha_hora", nulo=False),
+        C("version", "cadena", 20),
+        C("plataforma", "cadena", 20),
+        C("pantalla", "cadena", 40),
+        C("tipo", "cadena", 80, nulo=False),
+        C("mensaje", "texto"),
+        C("traza", "texto"),
+        C("huella", "cadena", 16, nulo=False),
+    ), indices=("colegio_id", "huella", "creado_en"), solo_servidor=True,
+        comentario="Errores y cierres inesperados de la app. Sin datos personales: solo colegio, perfil y causa"),
+    Tabla("estado_servidor", (
+        C("clave", "cadena", 40, nulo=False, clave_primaria=True),
+        C("valor", "cadena", 80),
+    ), solo_servidor=True,
+        comentario="Valores internos del servidor. Hoy: la última hora que vio su reloj (para detectar un reloj atrasado)"),
     # --- Tablas que existen solo en el teléfono -----------------------------
     Tabla("credenciales", (
         C("correo", "cadena", 120, nulo=False, clave_primaria=True),
@@ -243,13 +320,53 @@ def sentencias_creacion(motor: str, incluir_locales: bool = False, claves_forane
     """Todas las sentencias CREATE para el motor indicado ("sqlite" o "mysql")."""
     sentencias = []
     for tabla in TABLAS:
-        if tabla.solo_local and not incluir_locales:
+        if _omitir(tabla, incluir_locales):
             continue
         sentencias.extend(tabla.sentencias(motor, claves_foraneas))
     return sentencias
 
 
+def _omitir(tabla: Tabla, incluir_locales: bool) -> bool:
+    """El teléfono (incluir_locales=True) no lleva las tablas solo del servidor; el servidor no lleva las del teléfono."""
+    return (tabla.solo_local and not incluir_locales) or (tabla.solo_servidor and incluir_locales)
+
+
+def columnas_existentes(conexion, tabla: str) -> set[str]:
+    if conexion.motor == "sqlite":
+        return {f["name"] for f in conexion.consultar(f"PRAGMA table_info({tabla})")}
+    return {f["Field"] for f in conexion.consultar(f"SHOW COLUMNS FROM {tabla}")}
+
+
+def migrar_columnas(conexion, incluir_locales: bool = False) -> list[str]:
+    """
+    Agrega las columnas que existen en el esquema pero faltan en una base más antigua
+    (por ejemplo la base interna de un teléfono creada antes de que existieran los colegios).
+
+    Se crean SIN restricción NOT NULL (en una tabla con filas no se puede agregar una columna obligatoria):
+    en el teléfono es solo una copia de lo que manda el servidor. Devuelve las columnas agregadas.
+    """
+    agregadas = []
+    for tabla in TABLAS:
+        if _omitir(tabla, incluir_locales):
+            continue
+        existentes = columnas_existentes(conexion, tabla.nombre)
+        for columna in tabla.columnas:
+            if columna.nombre in existentes:
+                continue
+            definicion = columna.definicion(conexion.motor).replace(" NOT NULL", "")
+            conexion.ejecutar(f"ALTER TABLE {tabla.nombre} ADD COLUMN {definicion}")
+            agregadas.append(f"{tabla.nombre}.{columna.nombre}")
+    return agregadas
+
+
 def crear_esquema(conexion, incluir_locales: bool = False, claves_foraneas: bool = True) -> None:
-    """Crea las tablas que falten en la conexión dada."""
+    """Crea las tablas que falten y las columnas nuevas que falten en las que ya existían."""
     for sentencia in sentencias_creacion(conexion.motor, incluir_locales, claves_foraneas):
+        if "CREATE INDEX" in sentencia and conexion.motor == "sqlite":
+            continue          # los índices se crean después de migrar (pueden usar columnas nuevas)
         conexion.ejecutar(sentencia)
+    migrar_columnas(conexion, incluir_locales)
+    if conexion.motor == "sqlite":
+        for sentencia in sentencias_creacion(conexion.motor, incluir_locales, claves_foraneas):
+            if "CREATE INDEX" in sentencia:
+                conexion.ejecutar(sentencia)

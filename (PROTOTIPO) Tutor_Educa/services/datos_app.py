@@ -9,14 +9,77 @@ en la cola de sincronización para enviarlo al servidor.
 
 from __future__ import annotations
 
+import uuid
+from dataclasses import dataclass, field
+from datetime import date
 from typing import Callable
 
+from services import calendario
+from services.acciones_docente import avisos_sin_confirmar
+from services.cursos import ResumenCurso
 from services.graficos import grafico_progreso
+from services.metricas import Metricas, ResumenEfecto, a_csv, calcular_metricas, resumen_curso, semestre_actual
 from models.modelos import (Asignatura, Aviso, Curso, Estudiante, EstadoRefuerzo, FichaEstudiante, Intento,
                         Tema, ahora_iso)
 
 # Orden en que se muestran los refuerzos: primero lo que está en curso.
 ORDEN_ESTADOS = {EstadoRefuerzo.EN_PROGRESO: 0, EstadoRefuerzo.DISPONIBLE: 1, EstadoRefuerzo.LOGRADO: 2}
+
+
+@dataclass
+class VistaCalendario:
+    """Lo necesario para dibujar el calendario de un curso o de un estudiante (todo viene de la base local)."""
+
+    curso_id: int
+    clases_sabado: bool = False
+    eventos: list[dict] = field(default_factory=list)
+    dias_con_lista: set[str] = field(default_factory=set)        # días en que se pasó lista en el curso
+    excepciones: dict[str, str] = field(default_factory=dict)    # {día: «ausente»|«justificado»} de UN estudiante
+    ausencias_por_dia: dict[str, int] = field(default_factory=dict)   # solo para la vista del curso (docente)
+    estudiantes: int = 0
+
+    def estado_dia(self, dia: date) -> calendario.EstadoDia:
+        return calendario.estado_del_dia(dia, self.clases_sabado, self.eventos, self.curso_id)
+
+    def estado_alumno(self, dia: date) -> str | None:
+        """«presente», «ausente», «justificado» o None (ese día no se pasó lista)."""
+        return calendario.estado_de(calendario.a_texto(dia), self.dias_con_lista, self.excepciones)
+
+    def eventos_proximos(self, desde: date, limite: int = 8) -> list[dict]:
+        hoy = calendario.a_texto(desde)
+        proximos = [e for e in self.eventos if calendario.dia_de(e["fecha_fin"]) >= hoy]
+        proximos.sort(key=lambda e: (calendario.dia_de(e["fecha_inicio"]), e["titulo"]))
+        return proximos[:limite]
+
+    @property
+    def dias_validos(self) -> list[str]:
+        return calendario.dias_validos_con_lista(self.dias_con_lista, self.clases_sabado, self.eventos, self.curso_id)
+
+    def describir(self, dia: date, hoy: date, modo: str = "alumno") -> tuple[str, list[str]]:
+        """Título y líneas de texto para el detalle de un día (lo que se muestra al tocarlo)."""
+        texto_dia = calendario.fecha_legible(dia)
+        estado = self.estado_dia(dia)
+        lineas: list[str] = []
+        if not estado.con_clases:
+            lineas.append(estado.motivo)
+        elif dia > hoy:
+            lineas.append("Todavía no llega este día.")
+        else:
+            marca = calendario.a_texto(dia)
+            if marca not in self.dias_con_lista:
+                lineas.append("Aún no se pasó lista este día." if modo == "alumno" else "Falta pasar lista este día.")
+            elif modo == "alumno":
+                lineas.append({"presente": "Estuvo presente.", "ausente": "Estuvo ausente.",
+                               "justificado": "Estuvo ausente (justificado)."}[self.estado_alumno(dia) or "presente"])
+            else:
+                faltaron = self.ausencias_por_dia.get(marca, 0)
+                lineas.append("Todos presentes." if not faltaron else
+                              f"{faltaron} {'estudiante faltó' if faltaron == 1 else 'estudiantes faltaron'}.")
+        for evento in estado.eventos:
+            tipo = calendario.TIPOS_EVENTO.get(evento["tipo"], (evento["tipo"], True))[0]
+            extra = f" — {evento['descripcion']}" if evento.get("descripcion") else ""
+            lineas.append(f"{tipo}: {evento['titulo']}{extra}")
+        return texto_dia[0].upper() + texto_dia[1:], lineas
 
 
 class ServicioDatos:
@@ -37,6 +100,17 @@ class ServicioDatos:
     def cerrar_sesion(self) -> None:
         self.usuario = None
         self.invalidar()
+
+    def colegio_nombre(self) -> str:
+        """Nombre del colegio de quien tiene la sesión abierta ("" si todavía no se ha descargado)."""
+        if self.usuario is None:
+            return ""
+        colegio_id = self.usuario.colegio_id
+        if colegio_id is None:      # ingreso sin conexión: el colegio quedó guardado con los datos descargados
+            fila = self.local.usuario_por_id(self.usuario.id)
+            colegio_id = fila.get("colegio_id") if fila else None
+        fila = self.local.colegio(int(colegio_id)) if colegio_id is not None else None
+        return fila["nombre"] if fila else ""
 
     def invalidar(self) -> None:
         """Olvida lo guardado en memoria (se llama después de sincronizar)."""
@@ -77,15 +151,22 @@ class ServicioDatos:
             refuerzo.tema = self.tema(refuerzo.tema_id)
         refuerzos.sort(key=lambda r: (ORDEN_ESTADOS.get(r.estado, 9), r.tema.orden if r.tema else 99))
         cursos: dict[int, Curso | None] = {}
+        excepciones = self._excepciones_de(ids)
+        validos: dict[int, list[str]] = {}
         fichas = []
         for fila in filas:
             eid, curso_id = int(fila["id"]), int(fila["curso_id"])
             if curso_id not in cursos:
                 cursos[curso_id] = self.local.curso(curso_id)
+                validos[curso_id] = self._dias_validos_curso(cursos[curso_id])
+            resumen = calendario.resumen_asistencia(validos[curso_id], excepciones.get(eid, {}))
+            # Con lista diaria, el porcentaje se calcula; mientras no se haya pasado lista, vale el número fijo de antes.
+            porcentaje = resumen.porcentaje if resumen.hay_datos else int(fila["asistencia"])
             fichas.append(FichaEstudiante(
                 estudiante=Estudiante(id=eid, correo=fila["correo"], nombre=fila["nombre"]),
-                curso=cursos[curso_id], asistencia=int(fila["asistencia"]),
+                curso=cursos[curso_id], asistencia=porcentaje, resumen_asistencia=resumen,
                 apoderado_nombre=fila.get("apoderado_nombre") or "",
+                apoderado_id=int(fila["apoderado_id"]) if fila.get("apoderado_id") else None,
                 calificaciones=[c for c in calificaciones if c.estudiante_id == eid],
                 refuerzos=[r for r in refuerzos if r.estudiante_id == eid],
                 intentos=[i for i in intentos if i.estudiante_id == eid]))
@@ -98,8 +179,165 @@ class ServicioDatos:
     def cursos_docente(self) -> list[Curso]:
         return self.local.cursos_de_docente(self.usuario.id) if self.usuario else []
 
+    def resumen_cursos(self) -> list[ResumenCurso]:
+        """Un resumen por curso de la docente (para elegir curso cuando tiene más de uno)."""
+        resumenes = []
+        for curso in self.cursos_docente():
+            fichas = self.fichas_curso(curso.id)
+            resumenes.append(ResumenCurso(curso=curso, estudiantes=len(fichas),
+                                          en_riesgo=sum(1 for f in fichas if f.necesita_refuerzo),
+                                          sin_apoderado=sum(1 for f in fichas if not f.apoderado_nombre),
+                                          avisos_sin_confirmar=avisos_sin_confirmar(
+                                              self.avisos_curso(curso.id), fichas).avisos))
+        return resumenes
+
     def fichas_curso(self, curso_id: int) -> list[FichaEstudiante]:
         return self._fichas(self.local.estudiantes_de_curso(curso_id))
+
+    # --- Calendario: asistencia y eventos (tareas 20 y 24) ------------------------------------------------
+    def _excepciones_de(self, estudiante_ids: list[int]) -> dict[int, dict[str, str]]:
+        resultado: dict[int, dict[str, str]] = {}
+        for f in self.local.asistencia_de(estudiante_ids):
+            resultado.setdefault(int(f["estudiante_id"]), {})[calendario.dia_de(f["fecha"])] = f["estado"]
+        return resultado
+
+    def _eventos_de(self, curso: Curso | None) -> list[dict]:
+        if curso is None or curso.colegio_id is None:
+            return []
+        return self.local.eventos_del_colegio(int(curso.colegio_id), [curso.id])
+
+    def _dias_validos_curso(self, curso: Curso | None) -> list[str]:
+        if curso is None:
+            return []
+        con_lista = {calendario.dia_de(f["fecha"]) for f in self.local.asistencia_dias([curso.id])}
+        return calendario.dias_validos_con_lista(con_lista, curso.clases_sabado, self._eventos_de(curso), curso.id)
+
+    def hoy(self) -> date:
+        return calendario.hoy_chile()
+
+    def calendario_curso(self, curso_id: int) -> VistaCalendario | None:
+        """El calendario de un curso para la docente: qué días hay clases, en cuáles se pasó lista y cuántos faltaron."""
+        curso = self.local.curso(curso_id)
+        if curso is None:
+            return None
+        ids = [int(f["id"]) for f in self.local.estudiantes_de_curso(curso_id)]
+        ausencias: dict[str, int] = {}
+        for f in self.local.asistencia_de(ids):
+            dia = calendario.dia_de(f["fecha"])
+            ausencias[dia] = ausencias.get(dia, 0) + 1
+        con_lista = {calendario.dia_de(f["fecha"]) for f in self.local.asistencia_dias([curso_id])}
+        return VistaCalendario(curso_id, curso.clases_sabado, self._eventos_de(curso), con_lista, {}, ausencias, len(ids))
+
+    def calendario_estudiante(self, ficha: FichaEstudiante) -> VistaCalendario | None:
+        """El calendario de un estudiante para su familia (o para él): su asistencia y los eventos de su curso."""
+        curso = ficha.curso
+        if curso is None:
+            return None
+        con_lista = {calendario.dia_de(f["fecha"]) for f in self.local.asistencia_dias([curso.id])}
+        excepciones = self._excepciones_de([ficha.estudiante.id]).get(ficha.estudiante.id, {})
+        return VistaCalendario(curso.id, curso.clases_sabado, self._eventos_de(curso), con_lista, excepciones)
+
+    def lista_del_dia(self, curso_id: int, dia: str) -> tuple[bool, dict[int, str]]:
+        """(¿ya se pasó lista?, {estudiante: estado}). Todos aparecen presentes salvo los que faltaron."""
+        ids = [int(f["id"]) for f in self.local.estudiantes_de_curso(curso_id)]
+        hay = bool(self.local.bd.valor("SELECT COUNT(*) FROM asistencia_dias WHERE curso_id = ? AND fecha = ?",
+                                       (curso_id, dia), 0))
+        estados = {i: calendario.PRESENTE for i in ids}
+        for f in self.local.asistencia_de(ids):
+            if calendario.dia_de(f["fecha"]) == dia:
+                estados[int(f["estudiante_id"])] = f["estado"]
+        return hay, estados
+
+    def _curso_propio(self, curso_id: int) -> Curso | None:
+        return next((c for c in self.cursos_docente() if c.id == curso_id), None)
+
+    def pasar_lista(self, curso_id: int, dia: str, ausentes: list[int], justificados: list[int]) -> str:
+        """Guarda la lista de un día (queda en el teléfono y se envía sola). Devuelve ``""`` o el motivo por el que
+        no se pudo (domingo, sábado sin clases, feriado, día futuro...): las mismas reglas que aplica el servidor."""
+        curso = self._curso_propio(curso_id)
+        if curso is None or not self.usuario:
+            return "Ese curso no es tuyo."
+        motivo = calendario.validar_dia_de_lista(dia, self.hoy(), curso.clases_sabado, self._eventos_de(curso), curso.id)
+        if motivo:
+            return motivo
+        del_curso = {int(f["id"]) for f in self.local.estudiantes_de_curso(curso_id)}
+        if not set(ausentes) | set(justificados) <= del_curso or set(ausentes) & set(justificados):
+            return "La lista tiene estudiantes que no corresponden a este curso."
+        fecha = ahora_iso()
+        self.local.guardar_asistencia_dia(curso_id, dia, sorted(ausentes), sorted(justificados), self.usuario.id, fecha,
+                                          id_local=self.local.id_local)
+        self._encolar("asistencia_dia", {"curso_id": curso_id, "fecha": dia, "ausentes": sorted(ausentes),
+                                         "justificados": sorted(justificados), "docente_id": self.usuario.id,
+                                         "registrado_en": fecha})
+        return ""
+
+    def cambiar_sabado(self, curso_id: int, activo: bool) -> str:
+        if self._curso_propio(curso_id) is None or not self.usuario:
+            return "Ese curso no es tuyo."
+        self.local.cambiar_sabado_curso(curso_id, activo)
+        self._encolar("curso_sabado", {"curso_id": curso_id, "clases_sabado": bool(activo), "docente_id": self.usuario.id})
+        return ""
+
+    def crear_evento(self, curso_id: int, titulo: str, tipo: str, fecha_inicio: str, fecha_fin: str | None = None,
+                     descripcion: str = "", hay_clases: bool | None = None) -> str:
+        curso = self._curso_propio(curso_id)
+        if curso is None or not self.usuario:
+            return "Ese curso no es tuyo."
+        titulo = " ".join((titulo or "").split())
+        fecha_fin = fecha_fin or fecha_inicio
+        motivo = calendario.validar_evento(titulo, tipo, fecha_inicio, fecha_fin)
+        if motivo:
+            return motivo
+        con_clases = calendario.hay_clases_por_defecto(tipo) if hay_clases is None else bool(hay_clases)
+        if tipo in ("feriado", "sin_clases"):
+            con_clases = False
+        datos = {"codigo": uuid.uuid4().hex, "colegio_id": curso.colegio_id, "curso_id": curso.id, "titulo": titulo,
+                 "descripcion": (descripcion or "").strip(), "tipo": tipo, "fecha_inicio": fecha_inicio,
+                 "fecha_fin": fecha_fin, "hay_clases": 1 if con_clases else 0, "creado_por": self.usuario.id,
+                 "creado_en": ahora_iso()}
+        self.local.publicar_evento(datos, id_nuevo=self.local.id_local("eventos"))
+        self._encolar("evento", datos)
+        return ""
+
+    def dar_de_baja_evento(self, evento: dict) -> str:
+        """Solo los eventos de SUS cursos (los de todo el colegio los maneja la administración)."""
+        if evento.get("curso_id") is None or self._curso_propio(int(evento["curso_id"])) is None or not self.usuario:
+            return "Ese evento lo maneja la administración del colegio."
+        self.local.dar_de_baja_evento(evento["codigo"])
+        self._encolar("evento_baja", {"codigo": evento["codigo"], "docente_id": self.usuario.id})
+        return ""
+
+    # --- Métricas de uso y desempeño (efecto de Tutor Educa) ----------------------------------------------
+    def metricas_de(self, ficha: FichaEstudiante, hoy=None) -> Metricas:
+        """Las métricas del semestre actual de una ficha ya cargada."""
+        return calcular_metricas(ficha.estudiante.id, ficha.calificaciones, ficha.intentos, semestre_actual(hoy))
+
+    def metricas_estudiante(self, estudiante_id: int, hoy=None) -> Metricas | None:
+        ficha = self.ficha(estudiante_id)
+        return self.metricas_de(ficha, hoy) if ficha else None
+
+    def metricas_curso(self, curso_id: int, hoy=None) -> list[tuple[FichaEstudiante, Metricas]]:
+        return [(f, self.metricas_de(f, hoy)) for f in self.fichas_curso(curso_id)]
+
+    def resumen_efecto_curso(self, curso_id: int, hoy=None) -> ResumenEfecto:
+        return resumen_curso([m for _f, m in self.metricas_curso(curso_id, hoy)])
+
+    def exportar_metricas_csv(self, curso_id: int, carpeta, anonimo: bool = False, hoy=None):
+        """Guarda las métricas del curso como CSV (abre directo en Excel en español) y devuelve la ruta del archivo."""
+        from datetime import date
+        from pathlib import Path
+        curso = next((c for c in self.cursos_docente() if c.id == curso_id), None)
+        if curso is None:
+            raise ValueError("Ese curso no es tuyo.")
+        filas = [(f.estudiante.nombre, curso.nombre, m) for f, m in self.metricas_curso(curso_id, hoy)]
+        filas.sort(key=lambda fila: fila[0].lower())
+        carpeta = Path(carpeta)
+        carpeta.mkdir(parents=True, exist_ok=True)
+        nombre_curso = "".join(c if c.isalnum() else "_" for c in curso.nombre).strip("_")
+        sufijo = "anonimo" if anonimo else "con_nombres"
+        ruta = carpeta / f"metricas_{nombre_curso}_{date.today():%Y-%m-%d}_{sufijo}.csv"
+        ruta.write_text(a_csv(filas, anonimo), encoding="utf-8")
+        return ruta
 
     def hijos(self) -> list[FichaEstudiante]:
         return self._fichas(self.local.hijos_de_apoderado(self.usuario.id)) if self.usuario else []
@@ -183,11 +421,54 @@ class ServicioDatos:
         if avisar:
             self._avisar()
 
-    def desbloquear_varios(self, estudiante_ids: list[int], tema_id: str, mensaje: str = "") -> int:
+    def desbloquear_varios(self, estudiante_ids: list[int], tema_id: str, mensaje: str = "",
+                           con_aviso: bool = True) -> int:
+        """
+        Desbloquea un tema y, por defecto, deja un AVISO en la sección «Avisos» de las familias.
+
+        Así la familia se entera por el mismo lugar de siempre (con el botón «Recibido») y la docente
+        no tiene que escribir nada aparte. El mensaje opcional de la docente se agrega al aviso.
+        """
+        fichas = {i: self.ficha(i) for i in estudiante_ids}
+        nuevos = [i for i, f in fichas.items()
+                  if f and not any(r.tema_id == tema_id and r.activo for r in f.refuerzos)]
         for estudiante_id in estudiante_ids:
             self.cambiar_desbloqueo(estudiante_id, tema_id, True, mensaje or None, avisar=False)
+        if con_aviso and nuevos:
+            self._avisos_de_desbloqueo([fichas[i] for i in nuevos], tema_id, mensaje,
+                                       [f for f in fichas.values() if f])
         self._avisar()
         return len(estudiante_ids)
+
+    def _avisos_de_desbloqueo(self, fichas: list[FichaEstudiante], tema_id: str, mensaje: str,
+                              pedidos: list[FichaEstudiante]) -> None:
+        """
+        Un aviso para todo el curso si la docente lo desbloqueó para todo el curso; si no, un aviso por
+        estudiante que lo recibe por primera vez (``fichas``). ``pedidos`` son todos los elegidos.
+        """
+        tema = self.tema(tema_id)
+        if not tema or not self.usuario:
+            return
+        extra = f"\n\nMensaje de la docente: {mensaje.strip()}" if mensaje and mensaje.strip() else ""
+        titulo = f"Nuevo tema de refuerzo: {tema.titulo}"
+        por_curso: dict[int, list[FichaEstudiante]] = {}
+        for ficha in fichas:
+            if ficha.curso is not None:
+                por_curso.setdefault(int(ficha.curso.id), []).append(ficha)
+        elegidos = {f.estudiante.id for f in pedidos}
+        for curso_id, grupo in por_curso.items():
+            ids_curso = {f.estudiante.id for f in self.fichas_curso(curso_id)}
+            if elegidos >= ids_curso:
+                cuerpo = (f"Se liberó el tema «{tema.titulo}» para todo el curso. Los estudiantes pueden "
+                          f"repasarlo desde su app, incluso sin internet.{extra}")
+                self.publicar_aviso(Aviso.nuevo(curso_id, self.usuario.id, titulo, cuerpo, tipo="refuerzo"))
+                continue
+            for ficha in grupo:
+                cuerpo = (f"Se liberó el tema «{tema.titulo}» para {ficha.estudiante.primer_nombre}. Puede "
+                          f"repasarlo desde su app, incluso sin internet. Lo encuentras en la pestaña "
+                          f"Refuerzos.{extra}")
+                self.publicar_aviso(Aviso.nuevo(curso_id, self.usuario.id, titulo, cuerpo,
+                                                estudiante_id=ficha.estudiante.id, tipo="refuerzo"))
 
     def publicar_aviso(self, aviso: Aviso) -> None:
         datos = {"codigo": aviso.codigo, "curso_id": aviso.curso_id, "estudiante_id": aviso.estudiante_id,

@@ -42,6 +42,10 @@ class ErrorSesion(ErrorConexion):
     """La sesión venció o no existe: hay que volver a ingresar con la contraseña (con conexión)."""
 
 
+class ErrorGestion(Exception):
+    """El servidor rechazó una gestión de cuentas (sin permiso, dato inválido...). El mensaje ya viene en español."""
+
+
 class ErrorCambio(Exception):
     """El servidor rechazó un cambio (no tiene permiso o viene mal formado). Reintentar no sirve."""
 
@@ -104,11 +108,25 @@ class ServidorHTTP:
             if error.codigo in (401, 403, 429):
                 return None, error.mensaje
             raise ErrorConexion(error.mensaje) from error
+        self._guardar_sesion(datos)
+        return datos["usuario"], ""
+
+    def activar(self, correo: str, codigo: str, clave: str) -> tuple[dict | None, str]:
+        """Activa una cuenta nueva con su código de invitación y deja la sesión abierta. Mismo contrato que ``verificar_ingreso``."""
+        try:
+            datos = self._pedir("POST", "/activar", {"correo": correo, "codigo": codigo, "clave": clave}, con_sesion=False)
+        except ErrorHTTP as error:
+            if error.codigo in (401, 403, 422, 429):
+                return None, error.mensaje
+            raise ErrorConexion(error.mensaje) from error
+        self._guardar_sesion(datos)
+        return datos["usuario"], ""
+
+    def _guardar_sesion(self, datos: dict) -> None:
         with self._candado:
             self._acceso, self.token_renovacion = datos["token_acceso"], datos["token_renovacion"]
             self._vence = time.monotonic() + int(datos.get("expira_en", 1800))
             self.usuario_id = int(datos["usuario"]["id"])
-        return datos["usuario"], ""
 
     def _token_vigente(self) -> str:
         with self._candado:
@@ -151,6 +169,31 @@ class ServidorHTTP:
             if error.codigo >= 500 or error.codigo in (408, 429):
                 raise ErrorConexion(error.mensaje) from error      # algo temporal: el cambio sigue en la cola
             raise ErrorCambio(error.mensaje) from error             # rechazado: reintentar no sirve
+
+    # --- Gestión de estudiantes y apoderados (la docente) -----------------------------------------------
+    def _gestionar(self, metodo: str, ruta: str, cuerpo: dict | None = None):
+        """Como ``_pedir``, pero un rechazo del servidor (4xx) llega como ``ErrorGestion`` con un mensaje claro."""
+        try:
+            return self._pedir(metodo, ruta, cuerpo)
+        except ErrorHTTP as error:
+            if error.codigo >= 500 or error.codigo in (408, 429):
+                raise ErrorConexion(error.mensaje) from error
+            raise ErrorGestion(error.mensaje) from error
+
+    def crear_estudiante(self, correo: str, nombre: str, curso_id: int, apoderado_correo: str | None = None,
+                         apoderado_nombre: str | None = None) -> dict:
+        return self._gestionar("POST", "/docente/estudiantes", {
+            "correo": correo, "nombre": nombre, "curso_id": curso_id, "apoderado_correo": apoderado_correo or None,
+            "apoderado_nombre": apoderado_nombre or None})
+
+    def cambiar_estudiante(self, estudiante_id: int, **cambios) -> dict:
+        return self._gestionar("PATCH", f"/docente/estudiantes/{int(estudiante_id)}", cambios)
+
+    def codigo_nuevo(self, usuario_id: int) -> dict:
+        return self._gestionar("POST", f"/docente/usuarios/{int(usuario_id)}/invitacion")
+
+    def estudiantes_dados_de_baja(self) -> list[dict]:
+        return self._gestionar("GET", "/docente/estudiantes/bajas")
 
     def chat_ia(self, sistema: str, mensajes: list[dict]) -> str:
         datos = self._pedir("POST", "/ia/chat", {"sistema": sistema, "mensajes": mensajes}, tiempo=50)

@@ -40,3 +40,20 @@ def validar_respuesta(texto: str) -> str:
     if not texto:
         raise ValueError("Primero elige o escribe una respuesta.")
     return texto
+
+
+LARGO_MINIMO_CLAVE_NUEVA = 10
+
+
+def validar_clave_nueva(clave: str) -> str:
+    """
+    Regla para la contraseña que una persona elige al activar su cuenta. La usan la app (para avisar antes de enviar)
+    y el servidor (que es quien la hace cumplir de verdad).
+    """
+    if len(clave or "") < LARGO_MINIMO_CLAVE_NUEVA:
+        raise ValueError(f"La contraseña debe tener al menos {LARGO_MINIMO_CLAVE_NUEVA} caracteres.")
+    if len(clave) > 200:
+        raise ValueError("La contraseña es demasiado larga.")
+    if clave.isdigit() or clave.lower() == clave.upper():
+        raise ValueError("La contraseña no puede ser solo números ni solo símbolos: mezcla letras y números.")
+    return clave

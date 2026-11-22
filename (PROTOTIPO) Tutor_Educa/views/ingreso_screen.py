@@ -21,6 +21,7 @@ from models.modelos import Rol
 from views.componentes import (Avatar, Boton, BotonIcono, CampoTexto, Casilla, Chip, Columna, ConCuadricula, Espacio,
                            Fila, FilaLista, Icono, InsigniaIcono, Superficie, Texto, TextoDestacado)
 from views.dialogos import Dialogo
+from views.gestion_dialogos import abrir_activacion
 from views.estilo import Paleta, Tipografia
 from views.base_screen import FondoPapel, PantallaBase, crear_desplazable
 
@@ -84,6 +85,8 @@ class PantallaIngreso(PantallaBase):
         self.boton = Boton("Ingresar", icono="log-in", al_presionar=self.ingresar)
         for widget in (self.campo_correo, self.campo_clave, self.casilla, self.error, self.boton):
             tarjeta.add_widget(widget)
+        tarjeta.add_widget(Boton("Tengo un código de invitación", icono="ticket", variante="contorno",
+                                 al_presionar=self._activar_cuenta))
         cuerpo.add_widget(tarjeta)
 
         self.zona_recordados = Columna(spacing=dp(8))
@@ -181,6 +184,11 @@ class PantallaIngreso(PantallaBase):
     def _al_fallar(self, error) -> None:
         self.boton.cargando = False
         self.error.cambiar(f"Ocurrió un problema inesperado: {error}")
+
+    def _activar_cuenta(self) -> None:
+        """Una cuenta nueva se activa con el código que entrega el colegio: ahí la persona elige su contraseña."""
+        correo = self.campo_correo.texto.strip()
+        abrir_activacion(self.app, correo if "@" in correo else "")
 
     # ------------------------------------------------------------------
     def _cuentas_prueba(self) -> None:

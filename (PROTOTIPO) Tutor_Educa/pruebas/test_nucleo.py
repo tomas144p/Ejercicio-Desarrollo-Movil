@@ -16,7 +16,9 @@ import shutil
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -31,10 +33,13 @@ from services.almacen_json import AlmacenIntentos  # noqa: E402
 from services.cronometro import Cronometro  # noqa: E402
 from services.estadisticas import resumen, tendencia  # noqa: E402
 from services.graficos import grafico_progreso  # noqa: E402
+from services.acciones_docente import (PLANTILLAS_AVISO, avisos_sin_confirmar, en_riesgo_sin_refuerzo,  # noqa: E402
+                                       tema_sugerido, tiene_datos_sin_completar)
+from services.cursos import ResumenCurso, curso_activo, ordenar_resumenes  # noqa: E402
 from services.ordenamiento import ordenar_fichas  # noqa: E402
 from services.validaciones import (validar_aviso, validar_clave, validar_correo,  # noqa: E402
                                    validar_respuesta)
-from models.modelos import (Aviso, EscalaNotas, EstadoRefuerzo, Intento, Pregunta,  # noqa: E402
+from models.modelos import (Aviso, Curso, EscalaNotas, EstadoRefuerzo, Intento, Pregunta,  # noqa: E402
                                  Usuario)
 from services.seguridad import GestorClaves  # noqa: E402
 from services.autenticacion import ServicioAutenticacion  # noqa: E402
@@ -52,6 +57,90 @@ class MonitorFalso:
 
 def pregunta(respuesta: str, tipo: str = "numerica", alternativas: str = "") -> Pregunta:
     return Pregunta(1, "t", 1, "¿?", tipo, alternativas, respuesta)
+
+
+class PruebasCursos(unittest.TestCase):
+    """Elección de curso para docentes con más de uno (Python puro)."""
+
+    def setUp(self):
+        self.a = Curso(1, "7° Básico B", "7° básico", docente_id=10)
+        self.b = Curso(2, "8° Básico A", "8° básico", docente_id=10)
+
+    def test_un_solo_curso_entra_directo(self):
+        self.assertIs(curso_activo([self.a], None), self.a)
+        self.assertIs(curso_activo([self.a], 99), self.a)
+
+    def test_varios_cursos_obligan_a_elegir(self):
+        self.assertIsNone(curso_activo([self.a, self.b], None))
+        self.assertIs(curso_activo([self.a, self.b], 2), self.b)
+
+    def test_curso_elegido_que_ya_no_es_suyo_vuelve_a_elegir(self):
+        self.assertIsNone(curso_activo([self.a, self.b], 99))
+
+    def test_sin_cursos(self):
+        self.assertIsNone(curso_activo([], None))
+        self.assertIsNone(curso_activo([], 1))
+
+    def test_orden_lo_urgente_primero(self):
+        resumenes = [ResumenCurso(self.a, 8, 1), ResumenCurso(self.b, 6, 3),
+                     ResumenCurso(Curso(3, "6° Básico C", "6° básico", 10), 7, 1)]
+        orden = [r.curso.nombre for r in ordenar_resumenes(resumenes)]
+        self.assertEqual(orden, ["8° Básico A", "6° Básico C", "7° Básico B"])
+
+
+class PruebasAccionesDocente(unittest.TestCase):
+    """Ayudas del docente: tema sugerido, avisos sin «Recibido» y plantillas (Python puro)."""
+
+    @staticmethod
+    def ficha(id, riesgo, temas=(), apoderado="Ana"):
+        refuerzos = [SimpleNamespace(tema_id=t, activo=True) for t in temas]
+        return SimpleNamespace(estudiante=SimpleNamespace(id=id), necesita_refuerzo=riesgo, refuerzos=refuerzos,
+                               refuerzos_activos=refuerzos, apoderado_nombre=apoderado)
+
+    @staticmethod
+    def temas(*ids):
+        return [SimpleNamespace(id=t, orden=i) for i, t in enumerate(ids, start=1)]
+
+    @staticmethod
+    def aviso(estudiante_id=None, lectores=0, dias=1, pendiente=False):
+        creado = (datetime.now() - timedelta(days=dias)).isoformat()
+        return SimpleNamespace(estudiante_id=estudiante_id, lectores=lectores, creado_en=creado, pendiente=pendiente)
+
+    def test_en_riesgo_sin_refuerzo(self):
+        fichas = [self.ficha(1, True), self.ficha(2, True, ["a"]), self.ficha(3, False)]
+        self.assertEqual([f.estudiante.id for f in en_riesgo_sin_refuerzo(fichas)], [1])
+
+    def test_tema_sugerido_el_que_mas_les_falta(self):
+        fichas = [self.ficha(1, True, ["a"]), self.ficha(2, True, ["a"]), self.ficha(3, True, ["b"]),
+                  self.ficha(4, False)]
+        sugerencia = tema_sugerido(fichas, self.temas("a", "b", "c"))
+        self.assertEqual((sugerencia.tema_id, sugerencia.estudiantes), ("c", 3))   # nadie tiene «c»
+
+    def test_tema_sugerido_empate_gana_el_primero(self):
+        fichas = [self.ficha(1, True), self.ficha(2, True)]
+        self.assertEqual(tema_sugerido(fichas, self.temas("a", "b")).tema_id, "a")
+
+    def test_tema_sugerido_sin_riesgo_o_sin_temas_nuevos(self):
+        self.assertIsNone(tema_sugerido([self.ficha(1, False)], self.temas("a")))
+        self.assertIsNone(tema_sugerido([self.ficha(1, True, ["a", "b"])], self.temas("a", "b")))
+
+    def test_avisos_sin_confirmar(self):
+        fichas = [self.ficha(1, False), self.ficha(2, False), self.ficha(3, False, apoderado="")]
+        avisos = [self.aviso(lectores=1),                          # curso: faltan 1 de 2 familias
+                  self.aviso(estudiante_id=1, lectores=0),         # individual: falta 1
+                  self.aviso(estudiante_id=1, lectores=1),         # ya confirmado
+                  self.aviso(estudiante_id=3, lectores=0),         # estudiante sin apoderado: nadie debe confirmar
+                  self.aviso(lectores=0, dias=30),                 # muy antiguo
+                  self.aviso(lectores=0, pendiente=True)]          # aún no enviado
+        resumen = avisos_sin_confirmar(avisos, fichas)
+        self.assertEqual((resumen.avisos, resumen.familias), (2, 2))
+
+    def test_plantillas_piden_completar_los_datos(self):
+        self.assertGreaterEqual(len(PLANTILLAS_AVISO), 3)
+        for plantilla in PLANTILLAS_AVISO:
+            self.assertTrue(tiene_datos_sin_completar(plantilla.titulo, plantilla.cuerpo), plantilla.nombre)
+            self.assertIn(plantilla.tipo, {"info", "evaluacion", "refuerzo", "logro"})
+        self.assertFalse(tiene_datos_sin_completar("Evaluación", "El 20 de noviembre, sobre potencias."))
 
 
 class PruebasBasicas(unittest.TestCase):
@@ -254,6 +343,81 @@ class PruebasConServidor(unittest.TestCase):
         self.datos.marcar_leido(avisos[0])
         self.assertEqual(self.datos.no_leidos(), no_leidos - 1)
 
+    def test_desbloqueo_deja_aviso_para_las_familias(self):
+        docente = self.auth.ingresar(self.correo("carolina.fuentes"), CLAVE).usuario
+        self.datos.iniciar_sesion(docente)
+        curso = self.datos.cursos_docente()[0]
+        fichas = self.datos.fichas_curso(curso.id)
+        necesitan = [f.estudiante.id for f in fichas if f.necesita_refuerzo]
+        # Grupo parcial: un aviso por estudiante, con el mensaje de la docente
+        self.datos.desbloquear_varios(necesitan, "mat-potencias", "Repasen potencias")
+        avisos = [a for a in self.datos.avisos_curso(curso.id) if a.tipo == "refuerzo" and a.titulo.startswith("Nuevo tema")]
+        self.assertEqual(len(avisos), len(necesitan))
+        self.assertEqual({a.estudiante_id for a in avisos}, set(necesitan))
+        self.assertTrue(all("Repasen potencias" in a.cuerpo for a in avisos))
+        # Repetir el desbloqueo no duplica avisos
+        self.datos.desbloquear_varios(necesitan, "mat-potencias", "Repasen potencias")
+        self.assertEqual(len([a for a in self.datos.avisos_curso(curso.id) if a.tipo == "refuerzo" and a.titulo.startswith("Nuevo tema")]), len(necesitan))
+        # Curso completo: un solo aviso para todo el curso
+        todos = [f.estudiante.id for f in fichas]
+        self.datos.desbloquear_varios(todos, "mat-ecuaciones")
+        del_curso = [a for a in self.datos.avisos_curso(curso.id) if a.tipo == "refuerzo" and a.titulo.startswith("Nuevo tema") and a.estudiante_id is None]
+        self.assertEqual(len(del_curso), 1)
+        # Sin aviso cuando se pide expresamente
+        total = len(self.datos.avisos_curso(curso.id))
+        self.datos.desbloquear_varios(todos, "mat-fracciones", con_aviso=False)
+        self.assertEqual(len(self.datos.avisos_curso(curso.id)), total)
+        # La familia lo ve en Avisos y puede confirmar «Recibido»
+        self.sinc.sincronizar(docente)
+        rodrigo = self.auth.ingresar(self.correo("rodrigo.perez"), CLAVE).usuario
+        self.datos.iniciar_sesion(rodrigo)
+        titulos = [a.titulo for a in self.datos.avisos_apoderado()]
+        self.assertTrue(any(t.startswith("Nuevo tema de refuerzo") for t in titulos))
+
+    def test_resumen_de_cursos_de_una_docente_con_dos_cursos(self):
+        docente = self.auth.ingresar(self.correo("carolina.fuentes"), CLAVE).usuario
+        self.datos.iniciar_sesion(docente)
+        unico = self.datos.resumen_cursos()
+        self.assertEqual(len(unico), 1)
+        self.assertEqual(unico[0].estudiantes, 8)
+        self.assertEqual(unico[0].en_riesgo, 3)
+        # Se crea un segundo curso con tres estudiantes del primero
+        bd = self.datos.local.bd
+        colegio = bd.consultar_uno("SELECT colegio_id FROM cursos WHERE id = 1")["colegio_id"]
+        bd.ejecutar("INSERT INTO cursos (id, nombre, nivel, docente_id, anio, colegio_id) "
+                    "VALUES (2, '8° Básico A', '8° básico', ?, 2026, ?)", (docente.id, colegio))
+        movidos = [f.estudiante.id for f in self.datos.fichas_curso(1)][:3]
+        for estudiante_id in movidos:
+            bd.ejecutar("UPDATE estudiantes SET curso_id = 2 WHERE usuario_id = ?", (estudiante_id,))
+        resumenes = {r.curso.id: r for r in self.datos.resumen_cursos()}
+        self.assertEqual(set(resumenes), {1, 2})
+        self.assertEqual(resumenes[1].estudiantes + resumenes[2].estudiantes, 8)
+        self.assertEqual(resumenes[2].estudiantes, 3)
+        self.assertEqual(resumenes[1].en_riesgo + resumenes[2].en_riesgo, 3)
+        # Con dos cursos la docente debe elegir; al elegir, solo ve los estudiantes de ese curso
+        cursos = self.datos.cursos_docente()
+        self.assertIsNone(curso_activo(cursos, None))
+        elegido = curso_activo(cursos, 2)
+        self.assertEqual({f.estudiante.id for f in self.datos.fichas_curso(elegido.id)}, set(movidos))
+
+    def test_ayudas_del_docente_con_datos_reales(self):
+        docente = self.auth.ingresar(self.correo("carolina.fuentes"), CLAVE).usuario
+        self.datos.iniciar_sesion(docente)
+        fichas = self.datos.fichas_curso(self.datos.cursos_docente()[0].id)
+        sugerencia = tema_sugerido(fichas, self.datos.temas())
+        self.assertIsNotNone(sugerencia)
+        self.assertLessEqual(sugerencia.estudiantes, sum(1 for f in fichas if f.necesita_refuerzo))
+        # Al desbloquear el tema sugerido para quienes lo necesitan, la sugerencia cambia
+        necesitan = [f.estudiante.id for f in fichas if f.necesita_refuerzo]
+        self.datos.desbloquear_varios(necesitan, sugerencia.tema_id)
+        fichas = self.datos.fichas_curso(self.datos.cursos_docente()[0].id)
+        nueva = tema_sugerido(fichas, self.datos.temas())
+        self.assertTrue(nueva is None or nueva.tema_id != sugerencia.tema_id)
+        self.assertEqual(en_riesgo_sin_refuerzo(fichas), [])
+        # Los avisos del desbloqueo aparecen como pendientes de «Recibido» y se ven en el resumen del curso
+        resumen = self.datos.resumen_cursos()[0]
+        self.assertGreaterEqual(resumen.avisos_sin_confirmar, 1)
+
     def test_tutor_local(self):
         sofia = self.auth.ingresar(self.correo("sofia.morales"), CLAVE).usuario
         self.datos.iniciar_sesion(sofia)
@@ -377,6 +541,28 @@ class PruebasPersistenciaJSON(unittest.TestCase):
         self.assertEqual(datos["cantidad"], 2)
         self.assertAlmostEqual(datos["nota_promedio"], (intentos[0].nota + intentos[1].nota) / 2)
 
+    def test_estadisticas_sin_numpy_dan_lo_mismo(self):
+        """En el APK no hay NumPy: el cálculo con Python puro debe coincidir con el de NumPy."""
+        import services.estadisticas as est
+        if est.np is None:
+            self.skipTest("NumPy no está instalado: no hay con qué comparar")
+        series = [[3.0, 4.0, 5.5, 6.0], [6.0, 5.0, 3.5], [5.0, 5.0, 5.0], [4.0, 6.5], [2.0, 7.0, 3.0, 6.0, 4.5]]
+        intentos = [Intento.nuevo(1, "a", c, 5, duracion_seg=d) for c, d in ((3, 40), (5, 0), (4, 90), (2, 15))]
+        con_numpy = ([est.tendencia(s) for s in series], est.resumen(intentos), [est._pendiente(s) for s in series])
+        numpy_original, est.np = est.np, None
+        try:
+            sin_numpy = ([est.tendencia(s) for s in series], est.resumen(intentos), [est._pendiente(s) for s in series])
+        finally:
+            est.np = numpy_original
+        self.assertEqual(con_numpy[0], sin_numpy[0])
+        for clave, valor in con_numpy[1].items():
+            if isinstance(valor, float):
+                self.assertAlmostEqual(valor, sin_numpy[1][clave], places=9, msg=clave)
+            else:
+                self.assertEqual(valor, sin_numpy[1][clave], clave)
+        for a, b in zip(con_numpy[2], sin_numpy[2]):
+            self.assertAlmostEqual(a, b, places=9)
+
     def test_grafico_matplotlib(self):
         intentos = [Intento.nuevo(1, "a", 3, 5, duracion_seg=40), Intento.nuevo(1, "a", 5, 5, duracion_seg=60)]
         png = Path(self.carpeta.name) / "grafico.png"
@@ -431,6 +617,79 @@ class PruebasArquitectura(unittest.TestCase):
     def test_main_es_corto(self):
         lineas = (self.RAIZ / "main.py").read_text(encoding="utf-8").splitlines()
         self.assertLess(len(lineas), 25)
+
+
+class PruebasColegiosYMigracion(unittest.TestCase):
+    """Las bases creadas antes de que existieran los colegios se actualizan solas y sin perder nada."""
+
+    ESQUEMA_ANTIGUO = (
+        "CREATE TABLE usuarios (id INTEGER PRIMARY KEY AUTOINCREMENT, correo VARCHAR(120) NOT NULL UNIQUE, "
+        "nombre VARCHAR(120) NOT NULL, rol VARCHAR(20) NOT NULL, clave_hash VARCHAR(200) NOT NULL, "
+        "activo INTEGER NOT NULL DEFAULT 1, creado_en TEXT)",
+        "CREATE TABLE cursos (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre VARCHAR(60) NOT NULL, "
+        "nivel VARCHAR(40) NOT NULL, docente_id INTEGER NOT NULL, anio INTEGER NOT NULL DEFAULT 2026)",
+    )
+
+    def setUp(self):
+        self.carpeta = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.carpeta, ignore_errors=True)
+
+    def base_antigua(self):
+        from models.datos.conexiones import ConexionSQLite
+        bd = ConexionSQLite(self.carpeta / "antigua.db", claves_foraneas=False)
+        for sentencia in self.ESQUEMA_ANTIGUO:
+            bd.ejecutar(sentencia)
+        bd.ejecutar("INSERT INTO usuarios (id, correo, nombre, rol, clave_hash) VALUES (1, 'a@b.cl', 'Ana', 'docente', 'x')")
+        bd.ejecutar("INSERT INTO cursos (id, nombre, nivel, docente_id) VALUES (1, '7° B', '7° básico', 1)")
+        return bd
+
+    def test_migra_columnas_sin_perder_filas(self):
+        from models.datos.esquema import columnas_existentes, migrar_columnas
+        bd = self.base_antigua()
+        self.assertNotIn("colegio_id", columnas_existentes(bd, "usuarios"))
+        crear_esquema(bd, incluir_locales=False, claves_foraneas=False)
+        self.assertIn("colegio_id", columnas_existentes(bd, "usuarios"))
+        self.assertIn("colegio_id", columnas_existentes(bd, "cursos"))
+        self.assertEqual(bd.valor("SELECT COUNT(*) FROM usuarios", defecto=0), 1)
+        self.assertEqual(bd.valor("SELECT nombre FROM usuarios WHERE id = 1"), "Ana")
+        self.assertEqual(migrar_columnas(bd), [])          # una segunda vez no cambia nada
+
+    def test_demo_antigua_queda_en_colegio_demo(self):
+        bd = self.base_antigua()
+        crear_esquema(bd, incluir_locales=False, claves_foraneas=False)
+        GestorServidor._asignar_colegio_demo(bd)
+        self.assertEqual(bd.valor("SELECT nombre FROM colegios WHERE id = 1"), "Colegio Demo")
+        self.assertEqual(bd.valor("SELECT colegio_id FROM usuarios WHERE id = 1"), 1)
+        self.assertEqual(bd.valor("SELECT colegio_id FROM cursos WHERE id = 1"), 1)
+        GestorServidor._asignar_colegio_demo(bd)             # repetirlo es inofensivo
+        self.assertEqual(bd.valor("SELECT COUNT(*) FROM colegios", defecto=0), 1)
+
+    def test_la_base_nueva_exige_colegio_en_los_cursos(self):
+        from models.datos.conexiones import ConexionSQLite
+        bd = ConexionSQLite(self.carpeta / "nueva.db", claves_foraneas=False)
+        crear_esquema(bd, incluir_locales=False, claves_foraneas=False)
+        with self.assertRaises(Exception):
+            bd.ejecutar("INSERT INTO cursos (nombre, nivel, docente_id) VALUES ('Sin colegio', '7°', 1)")
+
+    def test_el_telefono_guarda_el_colegio_y_la_persona_lo_lleva(self):
+        servidor = GestorServidor(ConfigServidor(motor="demo"), self.carpeta).inicializar().servidor
+        fila = servidor.usuario_por_correo(DatosIniciales().correo("andres.morales"))
+        usuario = Usuario.desde_fila(fila)
+        self.assertEqual(usuario.colegio_id, 1)
+        local = BaseDatosLocal(self.carpeta / "local.db")
+        local.aplicar_paquete(servidor.paquete_para(usuario))
+        self.assertEqual([c["nombre"] for c in local.colegios()], ["Colegio Demo"])
+        self.assertNotIn("clave_hash", str(servidor.paquete_para(usuario).usuarios))
+
+    def test_una_cuenta_sin_colegio_no_recibe_datos_de_personas(self):
+        servidor = GestorServidor(ConfigServidor(motor="demo"), self.carpeta).inicializar().servidor
+        fila = dict(servidor.usuario_por_correo(DatosIniciales().correo("andres.morales")), colegio_id=None)
+        paquete = servidor.paquete_para(Usuario.desde_fila(fila))
+        self.assertEqual((paquete.usuarios, paquete.estudiantes, paquete.calificaciones, paquete.avisos),
+                         ([], [], [], []))
+        self.assertTrue(paquete.temas)                       # la materia sí: no es información de personas
 
 
 if __name__ == "__main__":

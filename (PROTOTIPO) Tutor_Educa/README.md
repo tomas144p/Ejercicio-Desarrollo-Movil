@@ -3,10 +3,10 @@
 Tutor de refuerzo de **matemáticas para 5° a 8° básico** pensado para estudiantes que se atrasan por inasistencias o dificultades de aprendizaje. La app tiene tres perfiles y el **correo define el perfil** al ingresar:
 
 - **Estudiante**: ve sus notas en todas las asignaturas y los temas que su docente le desbloqueó. Cada tema trae materia preescrita (explicación, ejemplos resueltos y una prueba) que se puede estudiar **sin internet**. Con internet puede conversar con un **tutor IA** que explica dudas, muestra ejemplos y toma una mini prueba.
-- **Docente**: ve a su curso, quién necesita refuerzo (promedio de Matemáticas bajo 5,0) y **desbloquea temas por estudiante** o por grupo. También envía avisos a los apoderados y ve quién los leyó.
-- **Apoderado/a**: ve cómo va su estudiante, qué está reforzando, recibe consejos concretos para apoyar en casa, lee los avisos de la docente y puede usar un asistente IA para familias.
+- **Docente**: ve a su curso, quién necesita refuerzo (promedio de Matemáticas bajo 5,0) y **desbloquea temas por estudiante** o por grupo. También envía avisos a los apoderados y ve quién los leyó. **Pasa lista** marcando solo a quien faltó, ve el calendario del curso (feriados y eventos), agrega eventos y tiene una **calculadora de notas** (exigencia variable, planilla del curso).
+- **Apoderado/a**: ve cómo va su estudiante, qué está reforzando, recibe consejos concretos para apoyar en casa, lee los avisos de la docente, ve la **asistencia día a día** y los eventos del curso, y puede usar un asistente IA para familias.
 
-Las capturas actuales están en `capturas/` (las del prototipo anterior quedaron en `capturas/version_anterior/`).
+Las capturas de pantalla **no se incluyen** en el repositorio para ahorrar espacio: se generan cuando hacen falta con `herramientas/capturar_*.py` (por ejemplo `xvfb-run -a python herramientas/capturar_calendario.py`) y quedan en `capturas/`.
 
 ## Cómo ejecutar
 
@@ -151,6 +151,13 @@ HTTPS, y es la API la que usa MySQL y la IA. Así la app ya no lleva claves de b
 
 - Activarlo en la app: `config.local.json` → `{"servidor": {"motor": "http", "url": "https://..."}}`.
 - Probarlo en el PC: `pip install -r backend/requirements.txt` y `python -m backend` (guía completa en `backend/README.md`).
+- **Desde la app**: las familias activan su cuenta con «Tengo un código de invitación»; la docente agrega, da de baja y
+  reactiva estudiantes y vincula a sus apoderados (Mi curso y ficha del estudiante).
+- **Perfiles y cuentas**: superadmin (plataforma), admin (un colegio), docente, estudiante y apoderado. Las cuentas se
+  crean sin contraseña y se activan con un código de invitación de un solo uso (ver `backend/README.md`). Los
+  administradores usan el panel web, no la app.
+- **Colegios**: una base atiende a varios colegios y nada se mezcla (cada cuenta y curso es de UN colegio; ver
+  `backend/README.md`). Cada pantalla muestra el colegio en el encabezado.
 - Los modos `auto`, `mysql` y `demo` siguen existiendo para desarrollo, pero **no deben usarse en una versión
   que se entregue a un colegio**.
 - Pruebas: `python -m unittest discover pruebas` (las del backend se omiten solas si FastAPI no está instalado).

@@ -59,7 +59,8 @@ class ServicioSincronizacion:
     # Campo de cada cambio que dice quién lo hizo. Con la API, el servidor solo acepta cambios de quien tiene
     # la sesión abierta: los de otra persona del mismo teléfono esperan en la cola hasta que ella ingrese.
     CAMPO_AUTOR = {"intento": "estudiante_id", "estado_refuerzo": "estudiante_id", "desbloqueo": "docente_id",
-                   "aviso": "autor_id", "aviso_leido": "usuario_id"}
+                   "aviso": "autor_id", "aviso_leido": "usuario_id", "asistencia_dia": "docente_id",
+                   "evento": "creado_por", "evento_baja": "docente_id", "curso_sabado": "docente_id"}
 
     def _subir(self, servidor, usuario=None) -> tuple[int, int]:
         enviados = fallidos = 0

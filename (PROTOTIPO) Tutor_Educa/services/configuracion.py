@@ -82,6 +82,11 @@ class Configuracion:
                     continue
                 config._mezclar(datos)
 
+        # La dirección del servidor del colegio también puede venir del entorno (útil para pruebas y capturas).
+        url_servidor = os.environ.get("TUTOR_EDUCA_SERVIDOR_URL", "").strip()
+        if url_servidor:
+            config.servidor.motor, config.servidor.url = "http", url_servidor
+
         # La clave de la IA también puede venir de una variable de entorno.
         clave_entorno = os.environ.get("TUTOR_IA_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
         if clave_entorno and not config.ia.api_key:

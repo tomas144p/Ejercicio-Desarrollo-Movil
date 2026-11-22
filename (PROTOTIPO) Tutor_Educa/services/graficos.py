@@ -8,8 +8,6 @@ sin abrir ninguna ventana.
 
 from pathlib import Path
 
-import numpy as np
-
 from models.modelos import Intento
 from services.estadisticas import ordenar_cronologico
 
@@ -20,7 +18,8 @@ def grafico_progreso(intentos: list, ruta: Path) -> bool:
     """Guarda en ``ruta`` el gráfico de las pruebas. Devuelve False si no hay ninguna prueba que dibujar."""
     if not intentos:
         return False
-    from matplotlib.backends.backend_agg import FigureCanvasAgg   # se importa aquí para no demorar el inicio de la app
+    import numpy as np                                            # se importan aquí: el APK no los lleva y la app
+    from matplotlib.backends.backend_agg import FigureCanvasAgg   # los pide solo al dibujar el gráfico
     from matplotlib.figure import Figure
 
     ordenados = ordenar_cronologico(intentos)

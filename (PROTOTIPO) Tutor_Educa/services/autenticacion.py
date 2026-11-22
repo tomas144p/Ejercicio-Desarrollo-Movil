@@ -17,7 +17,7 @@ import re
 from dataclasses import dataclass
 
 from models.datos.conexiones import ErrorConexion
-from models.modelos import Usuario
+from models.modelos import Rol, Usuario
 from services.seguridad import GestorClaves
 
 
@@ -61,6 +61,37 @@ class ServicioAutenticacion:
         if fila is None:
             return ResultadoIngreso(False, en_linea=True, mensaje=mensaje)
 
+        return self._completar_ingreso(servidor, fila, clave, recordar)
+
+    def activar_cuenta(self, correo: str, codigo: str, clave: str, recordar: bool = True) -> ResultadoIngreso:
+        """
+        Activa una cuenta nueva con el código de invitación, elige la contraseña y entra.
+        Solo existe con la API del colegio (``motor: "http"``). Operación bloqueante (usar en segundo plano).
+        """
+        correo = (correo or "").strip().lower()
+        if not self.PATRON_CORREO.match(correo):
+            return ResultadoIngreso(False, mensaje="Escribe un correo válido, por ejemplo nombre@tutoreduca.cl.")
+        servidor = self.gestor_servidor.servidor
+        if servidor is None or not hasattr(servidor, "activar"):
+            return ResultadoIngreso(False, mensaje="Activar una cuenta necesita el servidor del colegio. "
+                                                   "Pide ayuda a tu colegio o revisa la configuración de la app.")
+        if self.monitor is not None and self.monitor.forzado_sin_conexion:
+            return ResultadoIngreso(False, mensaje="Para activar tu cuenta necesitas conexión con el servidor del colegio.")
+        try:
+            fila, mensaje = servidor.activar(correo, codigo, clave)
+        except ErrorConexion:
+            return ResultadoIngreso(False, mensaje="No hay conexión con el servidor del colegio. Conéctate a internet "
+                                                   "para activar tu cuenta.")
+        if fila is None:
+            return ResultadoIngreso(False, en_linea=True, mensaje=mensaje)
+        return self._completar_ingreso(servidor, fila, clave, recordar)
+
+    def _completar_ingreso(self, servidor, fila: dict, clave: str, recordar: bool) -> ResultadoIngreso:
+        """Lo que sigue a una contraseña (o un código) aceptada por el servidor: descargar datos y recordar la cuenta."""
+        correo = fila["correo"]
+        if fila.get("rol") in Rol.ADMINISTRATIVOS:
+            return ResultadoIngreso(False, en_linea=True,
+                                    mensaje="Tu perfil se administra desde el panel web, no desde la app.")
         usuario = Usuario.desde_fila(fila)
         self.sincronizacion.sincronizar(usuario)   # descarga sus datos al teléfono
         if recordar:

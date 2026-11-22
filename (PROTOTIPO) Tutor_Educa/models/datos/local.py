@@ -70,7 +70,16 @@ class BaseDatosLocal(RepositorioTutor):
         return self.bd.consultar("SELECT * FROM cola_sincronizacion ORDER BY id")
 
     def cantidad_pendientes(self) -> int:
-        return int(self.bd.valor("SELECT COUNT(*) FROM cola_sincronizacion", defecto=0))
+        """Cambios que faltan por enviar. Los errores registrados no se cuentan: no son un cambio de la persona."""
+        return int(self.bd.valor("SELECT COUNT(*) FROM cola_sincronizacion WHERE tipo <> 'error_app'", defecto=0))
+
+    def encolar_error(self, datos: dict, maximo: int = 50) -> None:
+        """Guarda un error para enviarlo. Si ya hay ``maximo`` esperando, se descartan los más antiguos."""
+        self.encolar("error_app", datos)
+        total = int(self.bd.valor("SELECT COUNT(*) FROM cola_sincronizacion WHERE tipo = 'error_app'", defecto=0))
+        if total > maximo:
+            self.bd.ejecutar("DELETE FROM cola_sincronizacion WHERE id IN (SELECT id FROM cola_sincronizacion "
+                             "WHERE tipo = 'error_app' ORDER BY id LIMIT ?)", (total - maximo,))
 
     def ultimo_id_cola(self) -> int:
         return int(self.bd.valor("SELECT MAX(id) FROM cola_sincronizacion", defecto=0))
@@ -104,6 +113,35 @@ class BaseDatosLocal(RepositorioTutor):
     # ------------------------------------------------------------------
     # Descarga desde el servidor
     # ------------------------------------------------------------------
+    def _quitar_lo_que_ya_no_llega(self, paquete: PaqueteDatos) -> None:
+        """
+        Borra de la copia local lo que el servidor YA NO le asigna a esta persona: un estudiante dado de baja o que
+        pasó a otro curso u otro apoderado, y un curso reasignado a otra docente. Sin esto, esos datos (incluidas las
+        notas de un menor) quedarían guardados en el teléfono para siempre aunque el colegio los haya retirado.
+        """
+        vigentes = {int(i) for i in paquete.estudiante_ids}
+        propios = {int(f["usuario_id"]) for f in self.bd.consultar(
+            "SELECT usuario_id FROM estudiantes WHERE apoderado_id = ?", (paquete.usuario_id,))}
+        for curso_id in paquete.curso_ids:
+            propios |= {int(f["usuario_id"]) for f in self.bd.consultar(
+                "SELECT usuario_id FROM estudiantes WHERE curso_id = ?", (curso_id,))}
+        for estudiante_id in propios - vigentes:
+            for tabla in ("calificaciones", "refuerzos", "intentos", "asistencia"):
+                self.bd.ejecutar(f"DELETE FROM {tabla} WHERE estudiante_id = ?", (estudiante_id,))
+            self.bd.ejecutar("DELETE FROM estudiantes WHERE usuario_id = ?", (estudiante_id,))
+        # Cursos que esta persona tenía a cargo y el servidor ya no le entrega (reasignados a otra docente).
+        vigentes_cursos = {int(c) for c in paquete.curso_ids}
+        for curso in self.bd.consultar("SELECT id FROM cursos WHERE docente_id = ?", (paquete.usuario_id,)):
+            if int(curso["id"]) not in vigentes_cursos:        # en Python: «NOT IN (vacío)» no funciona bien en SQL
+                self.bd.ejecutar("DELETE FROM asistencia_dias WHERE curso_id = ?", (curso["id"],))
+                self.bd.ejecutar("DELETE FROM eventos WHERE curso_id = ?", (curso["id"],))
+                self.bd.ejecutar("DELETE FROM cursos WHERE id = ?", (curso["id"],))
+
+    def _borrar_eventos_del_colegio(self, paquete: PaqueteDatos) -> None:
+        """Quita los eventos guardados del colegio de esta persona para reemplazarlos por los que mandó el servidor."""
+        colegios = [int(c["id"]) for c in paquete.colegios] if paquete.colegios else []
+        self._borrar_donde("eventos", "colegio_id", colegios)
+
     def aplicar_paquete(self, paquete: PaqueteDatos, ultimo_id_cola: int = 0) -> bool:
         """
         Reemplaza la copia local con lo que llegó del servidor.
@@ -120,6 +158,8 @@ class BaseDatosLocal(RepositorioTutor):
                     self.bd.ejecutar(f"DELETE FROM {tabla}")
                 for tabla in ("asignaturas", "temas", "ejemplos", "preguntas"):
                     self.bd.insertar_varios(tabla, getattr(paquete, tabla))
+            self._quitar_lo_que_ya_no_llega(paquete)
+            self.bd.insertar_varios("colegios", paquete.colegios, reemplazar=True)
             self.bd.insertar_varios("usuarios", [dict(f, clave_hash="") for f in paquete.usuarios], reemplazar=True)
             self.bd.insertar_varios("cursos", paquete.cursos, reemplazar=True)
             self.bd.insertar_varios("estudiantes", paquete.estudiantes, reemplazar=True)
@@ -131,4 +171,12 @@ class BaseDatosLocal(RepositorioTutor):
             self._borrar_donde("avisos_leidos", "aviso_id", [a["id"] for a in paquete.avisos])
             self.bd.ejecutar("DELETE FROM avisos_leidos WHERE usuario_id = ?", (paquete.usuario_id,))
             self.bd.insertar_varios("avisos_leidos", paquete.lecturas, reemplazar=True)
+            # Calendario: se reemplaza por lo que manda el servidor (un evento dado de baja o una lista corregida
+            # desaparecen o cambian solos). Los eventos son del colegio de la persona.
+            self._borrar_donde("asistencia_dias", "curso_id", paquete.curso_ids)
+            self.bd.insertar_varios("asistencia_dias", paquete.asistencia_dias, reemplazar=True)
+            self._borrar_donde("asistencia", "estudiante_id", paquete.estudiante_ids)
+            self.bd.insertar_varios("asistencia", paquete.asistencia, reemplazar=True)
+            self._borrar_eventos_del_colegio(paquete)
+            self.bd.insertar_varios("eventos", paquete.eventos, reemplazar=True)
         return True

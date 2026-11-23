@@ -19,7 +19,7 @@ sys.path.insert(0, str(AQUI))
 
 from models.datos.local import BaseDatosLocal  # noqa: E402
 from services.registro_errores import (MAX_PENDIENTES, SEGUNDOS_ENTRE_IGUALES, TIPO_CIERRE, RegistroErrores,  # noqa: E402
-                                       construir_registro, limpiar)
+                                        construir_registro, limpiar)
 from test_backend import HAY_API, BaseApi, ahora, correo  # noqa: E402
 
 
@@ -84,7 +84,7 @@ class PruebasLimpieza(unittest.TestCase):
         for dato in ("sofia@colegio.cl", "Sofía Pérez", "12.345.678"):
             self.assertNotIn(dato, texto)
         self.assertEqual((registro["tipo"], registro["pantalla"], registro["version"], registro["plataforma"]),
-                         ("ValueError", "docente", "0.1.0", "android"))
+                        ("ValueError", "docente", "0.1.0", "android"))
         self.assertRegex(registro["traza"], r"test_errores\.py:\d+ en lanzar")      # solo archivo, línea y función
         self.assertNotIn("raise excepcion", registro["traza"])                      # nunca el código fuente
 
@@ -226,7 +226,7 @@ class PruebasManejadorKivy(unittest.TestCase):
         self.local, self.hora, self.avisos = LocalFalso(), [0.0], []
         registro = RegistroErrores(self.local, "0.1.0", "linux", lambda: "docente", reloj=lambda: self.hora[0])
         self.app = SimpleNamespace(registro_errores=registro,
-                                   notificador=SimpleNamespace(mostrar=lambda texto, tipo="info": self.avisos.append((texto, tipo))))
+                                    notificador=SimpleNamespace(mostrar=lambda texto, tipo="info": self.avisos.append((texto, tipo))))
         self.manejador = ManejadorErrores(self.app)
 
     def test_registra_avisa_con_amabilidad_y_deja_seguir(self):

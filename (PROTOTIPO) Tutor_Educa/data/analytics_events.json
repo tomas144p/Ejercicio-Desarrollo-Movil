@@ -25,5 +25,95 @@
             "rol": "estudiante",
             "metodo": "correo_contrasena"
         }
+    },
+    {
+        "event_id": "fd1d65d3-2096-48ca-85af-63136a3d1abe",
+        "event_name": "login_exitoso",
+        "timestamp": "2026-11-23T15:11:46.319638",
+        "properties": {
+            "rol": "estudiante",
+            "metodo": "correo_contrasena"
+        }
+    },
+    {
+        "event_id": "b40e00dc-734c-412a-895f-3ff82a9e7ce9",
+        "event_name": "login_exitoso",
+        "timestamp": "2026-11-23T17:23:41.755425",
+        "properties": {
+            "rol": "estudiante",
+            "metodo": "correo_contrasena"
+        }
+    },
+    {
+        "event_id": "3fdeaf22-e189-48fb-918f-e02e5eb86754",
+        "event_name": "login_exitoso",
+        "timestamp": "2026-11-23T17:29:22.696980",
+        "properties": {
+            "rol": "estudiante",
+            "metodo": "correo_contrasena"
+        }
+    },
+    {
+        "event_id": "afe776b1-fde9-444c-bb07-1f8bf6bb47c4",
+        "event_name": "login_exitoso",
+        "timestamp": "2026-11-23T17:30:40.087007",
+        "properties": {
+            "rol": "estudiante",
+            "metodo": "correo_contrasena"
+        }
+    },
+    {
+        "event_id": "b10652ae-dd4b-4371-91cd-aacbf74e4008",
+        "event_name": "login_exitoso",
+        "timestamp": "2026-11-23T17:30:49.793779",
+        "properties": {
+            "rol": "estudiante",
+            "metodo": "correo_contrasena"
+        }
+    },
+    {
+        "event_id": "97842840-2a27-4d7b-b054-de0e3b43c7be",
+        "event_name": "login_exitoso",
+        "timestamp": "2026-11-23T17:31:41.165631",
+        "properties": {
+            "rol": "estudiante",
+            "metodo": "correo_contrasena"
+        }
+    },
+    {
+        "event_id": "7d733ad5-af38-43a2-ba6c-e705dc816d38",
+        "event_name": "login_exitoso",
+        "timestamp": "2026-11-23T17:33:35.098459",
+        "properties": {
+            "rol": "estudiante",
+            "metodo": "correo_contrasena"
+        }
+    },
+    {
+        "event_id": "013351c9-6c53-4db3-a789-131b4e5b675f",
+        "event_name": "login_exitoso",
+        "timestamp": "2026-11-23T17:42:45.489551",
+        "properties": {
+            "rol": "estudiante",
+            "metodo": "correo_contrasena"
+        }
+    },
+    {
+        "event_id": "a93db588-1641-4aa6-b1be-fe9faf0249c8",
+        "event_name": "login_fallido",
+        "timestamp": "2026-11-23T17:43:23.654988",
+        "properties": {
+            "rol": "estudiante",
+            "metodo": "correo_contrasena"
+        }
+    },
+    {
+        "event_id": "ccb4c4e6-23aa-4193-a5ae-e4bbd9fe59fc",
+        "event_name": "login_exitoso",
+        "timestamp": "2026-11-23T17:43:31.365046",
+        "properties": {
+            "rol": "estudiante",
+            "metodo": "correo_contrasena"
+        }
     }
 ]

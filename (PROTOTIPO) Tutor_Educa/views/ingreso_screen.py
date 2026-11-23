@@ -104,14 +104,6 @@ class PantallaIngreso(PantallaBase):
         app.bind(en_linea=self._estado_servidor, conexion_revisada=self._estado_servidor,
                     descripcion_servidor=self._estado_servidor)
 
-        self.app.analytics.registrar_evento(
-        "login_exitoso",
-        {
-            "rol": "estudiante",
-            "metodo": "correo_contrasena"
-        }
-        )
-
     # ------------------------------------------------------------------
     def actualizar(self) -> None:
         self.error.cambiar("")
@@ -189,9 +181,25 @@ class PantallaIngreso(PantallaBase):
         else:
             self.error.cambiar(resultado.mensaje)
 
+        self.app.analytics.registrar_evento(
+        "login_fallido" if not resultado.exito else "login_exitoso",
+        {
+            "rol": "estudiante",
+            "metodo": "correo_contrasena"
+        }
+        )
+
     def _al_fallar(self, error) -> None:
         self.boton.cargando = False
         self.error.cambiar(f"Ocurrió un problema inesperado: {error}")
+
+        self.app.analytics.registrar_evento(
+        "login_fallido",
+        {
+            "rol": "estudiante",
+            "metodo": "correo_contrasena"
+        }
+        )
 
     def _activar_cuenta(self) -> None:
         """Una cuenta nueva se activa con el código que entrega el colegio: ahí la persona elige su contraseña."""

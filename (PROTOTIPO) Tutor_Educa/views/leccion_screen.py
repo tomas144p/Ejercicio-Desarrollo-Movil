@@ -278,14 +278,14 @@ class PantallaLeccion(PantallaBase):
         fila = Fila()
         fila.add_widget(Widget())
         fila.add_widget(InsigniaIcono("trophy" if sesion.logrado else "target", tinta=tinta, lado=64,
-                                      tamano_icono=30, redonda=True))
+                                        tamano_icono=30, redonda=True))
         fila.add_widget(Widget())
         tarjeta.add_widget(fila)
         tarjeta.add_widget(Texto(f"{sesion.porcentaje} %", tamano=40, fuente=Tipografia.NEGRITA, color_texto=tinta,
-                                 alinear="center"))
+                                    alinear="center"))
         tarjeta.add_widget(Texto(f"{sesion.correctas} de {sesion.total} correctas. Nota estimada "
-                                 f"{EscalaNotas.formatear(sesion.nota)}. Tiempo: {self._duracion_texto()}.", tamano=14.5,
-                                 color_texto=Paleta.TINTA_SUAVE, alinear="center"))
+                                    f"{EscalaNotas.formatear(sesion.nota)}. Tiempo: {self._duracion_texto()}.", tamano=14.5,
+                                    color_texto=Paleta.TINTA_SUAVE, alinear="center"))
         tarjeta.add_widget(Texto(sesion.mensaje_final(), tamano=15, fuente=Tipografia.MEDIA, alinear="center"))
         if self._logro_nuevo:
             tarjeta.add_widget(CajaNota("¡Tema logrado!", "Tu docente y tu apoderado verán este avance.",

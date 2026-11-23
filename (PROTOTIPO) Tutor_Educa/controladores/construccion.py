@@ -76,7 +76,7 @@ class ConstruccionApp:
         self.sincronizacion = ServicioSincronizacion(self.local, self.gestor_servidor)
         self.autenticacion = ServicioAutenticacion(self.local, self.gestor_servidor, self.sincronizacion, self.monitor)
         self.datos = ServicioDatos(self.local, al_haber_cambios=self._hubo_cambios,
-                                   almacen=AlmacenIntentos(carpeta / "intentos.json"))
+                                    almacen=AlmacenIntentos(carpeta / "intentos.json"))
         self.gestion = ServicioGestion(self.gestor_servidor, self.sincronizacion, self.monitor, self.local)
         self.tutor_ia = ServicioTutorIA(self.configuracion.ia, self.datos, self.gestor_servidor)
         self.pendientes = self.local.cantidad_pendientes()

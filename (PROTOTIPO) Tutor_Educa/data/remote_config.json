@@ -1,0 +1,9 @@
+{
+    "experimento": "texto_boton_ingreso",
+    "descripcion": "Evaluar qué texto del botón de ingreso consigue una mayor conversión.",
+    "variante": "A",
+    "variantes": {
+        "A": "Ingresar",
+        "B": "Continuar"
+    }
+}

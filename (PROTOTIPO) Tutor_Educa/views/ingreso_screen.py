@@ -19,7 +19,7 @@ from models.contenido.datos_iniciales import DatosIniciales
 from services.validaciones import validar_clave, validar_correo
 from models.modelos import Rol
 from views.componentes import (Avatar, Boton, BotonIcono, CampoTexto, Casilla, Chip, Columna, ConCuadricula, Espacio,
-                           Fila, FilaLista, Icono, InsigniaIcono, Superficie, Texto, TextoDestacado)
+                            Fila, FilaLista, Icono, InsigniaIcono, Superficie, Texto, TextoDestacado)
 from views.dialogos import Dialogo
 from views.gestion_dialogos import abrir_activacion
 from views.estilo import Paleta, Tipografia
@@ -35,14 +35,14 @@ class Portada(ConCuadricula, BoxLayout):
         self.bind(minimum_height=self.setter("height"))
         marca = Fila(spacing=dp(12))
         marca.add_widget(InsigniaIcono("graduation-cap", tinta="#FFFFFF", fondo=Paleta.AZUL, lado=46,
-                                       tamano_icono=24, pos_hint={"center_y": 0.5}))
+                                        tamano_icono=24, pos_hint={"center_y": 0.5}))
         marca.add_widget(Texto("Tutor Educa", tamano=27, fuente=Tipografia.NEGRITA, pos_hint={"center_y": 0.5}))
         self.add_widget(marca)
         self.add_widget(Texto("Refuerzo de matemáticas para 5° a 8° básico, con o sin internet.",
-                              tamano=14, color_texto=Paleta.TINTA_SUAVE))
+                                tamano=14, color_texto=Paleta.TINTA_SUAVE))
         self.add_widget(Espacio(6))
         self.add_widget(Texto("3x − 5 = 10", tamano=25, fuente=Tipografia.CUADERNO,
-                              color_texto=Paleta.TINTA_CUADERNO, cuaderno=True))
+                                color_texto=Paleta.TINTA_CUADERNO, cuaderno=True))
         fila = Fila()
         self.resultado = TextoDestacado("x = 5", tamano=25)
         self.resultado.avance = 0
@@ -76,7 +76,7 @@ class PantallaIngreso(PantallaBase):
         tarjeta = Superficie(padding=dp(20), spacing=dp(12), radio=dp(20))
         tarjeta.add_widget(Texto("Ingresa con tu correo", tamano=19, fuente=Tipografia.SEMI))
         tarjeta.add_widget(Texto("Tu correo define tu perfil: estudiante, docente o apoderado.",
-                                 tamano=13, color_texto=Paleta.TINTA_SUAVE))
+                                    tamano=13, color_texto=Paleta.TINTA_SUAVE))
         self.campo_correo = CampoTexto("nombre@tutoreduca.cl", icono="mail", al_confirmar=self._enfocar_clave)
         self.campo_correo.entrada.input_type = "mail"
         self.campo_clave = CampoTexto("Contraseña", icono="lock", clave=True, al_confirmar=self.ingresar)
@@ -86,7 +86,7 @@ class PantallaIngreso(PantallaBase):
         for widget in (self.campo_correo, self.campo_clave, self.casilla, self.error, self.boton):
             tarjeta.add_widget(widget)
         tarjeta.add_widget(Boton("Tengo un código de invitación", icono="ticket", variante="contorno",
-                                 al_presionar=self._activar_cuenta))
+                                    al_presionar=self._activar_cuenta))
         cuerpo.add_widget(tarjeta)
 
         self.zona_recordados = Columna(spacing=dp(8))
@@ -102,7 +102,15 @@ class PantallaIngreso(PantallaBase):
         cuerpo.add_widget(Boton("Ver cuentas de prueba", icono="users", variante="fantasma",
                                 al_presionar=self._cuentas_prueba))
         app.bind(en_linea=self._estado_servidor, conexion_revisada=self._estado_servidor,
-                 descripcion_servidor=self._estado_servidor)
+                    descripcion_servidor=self._estado_servidor)
+
+        self.app.analytics.registrar_evento(
+        "login_exitoso",
+        {
+            "rol": "estudiante",
+            "metodo": "correo_contrasena"
+        }
+        )
 
     # ------------------------------------------------------------------
     def actualizar(self) -> None:
@@ -134,9 +142,9 @@ class PantallaIngreso(PantallaBase):
             return
         cabecera = Fila()
         cabecera.add_widget(Texto("Cuentas guardadas en este dispositivo", tamano=13.5, fuente=Tipografia.MEDIA,
-                                  color_texto=Paleta.TINTA_SUAVE, pos_hint={"center_y": 0.5}))
+                                    color_texto=Paleta.TINTA_SUAVE, pos_hint={"center_y": 0.5}))
         cabecera.add_widget(Boton("Gestionar", variante="fantasma", alto=32, tamano=13, size_hint_x=None,
-                                  width=dp(96), al_presionar=self._gestionar_recordados, pos_hint={"center_y": 0.5}))
+                                    width=dp(96), al_presionar=self._gestionar_recordados, pos_hint={"center_y": 0.5}))
         self.zona_recordados.add_widget(cabecera)
         chips = StackLayout(orientation="lr-tb", size_hint_y=None, spacing=dp(8))
         chips.bind(minimum_height=chips.setter("height"))

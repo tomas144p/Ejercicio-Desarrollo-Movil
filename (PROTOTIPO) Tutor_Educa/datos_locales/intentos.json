@@ -46,5 +46,17 @@
     "realizado_en": "2026-10-27 19:43:10",
     "origen": "app",
     "duracion_seg": 20.3
+  },
+  {
+    "codigo": "c1ec18ce7c1140cdbeebf4d1a3e622b6",
+    "estudiante_id": 5,
+    "tema_id": "mat-porcentajes",
+    "correctas": 3,
+    "total": 5,
+    "porcentaje": 60,
+    "nota": 4.0,
+    "realizado_en": "2026-11-23 15:03:03",
+    "origen": "app",
+    "duracion_seg": 49.5
   }
 ]

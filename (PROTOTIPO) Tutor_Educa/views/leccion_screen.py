@@ -313,6 +313,16 @@ class PantallaLeccion(PantallaBase):
                                al_presionar=lambda: self.app.abrir_chat_estudiante(self.tema.id)))
         Clock.schedule_once(lambda _dt: setattr(self._scroll, "scroll_y", 1), 0.05)
 
+        self.app.analytics.registrar_evento(
+        "prueba_completada",
+        {
+            "tema": self.tema.titulo,
+            "porcentaje": porcentaje,
+            "logrado": logrado,
+            "cantidad_preguntas": total_preguntas
+        }
+        )
+
     def _volver_a_materia(self) -> None:
         self.sesion = None
         self.cambiar_seccion("aprende")

@@ -1,0 +1,29 @@
+[
+    {
+        "event_id": "6f18cbce-8b57-4bc8-9484-3afabe5d39ec",
+        "event_name": "login_exitoso",
+        "timestamp": "2026-11-23T14:59:47.313196",
+        "properties": {
+            "rol": "estudiante",
+            "metodo": "correo_contrasena"
+        }
+    },
+    {
+        "event_id": "9345b78e-0dc2-4b92-bdbc-2808204a5734",
+        "event_name": "login_exitoso",
+        "timestamp": "2026-11-23T15:00:47.678325",
+        "properties": {
+            "rol": "estudiante",
+            "metodo": "correo_contrasena"
+        }
+    },
+    {
+        "event_id": "c41e8a2c-e029-4ae0-87a9-23adfbb2dcf6",
+        "event_name": "login_exitoso",
+        "timestamp": "2026-11-23T15:03:35.660117",
+        "properties": {
+            "rol": "estudiante",
+            "metodo": "correo_contrasena"
+        }
+    }
+]

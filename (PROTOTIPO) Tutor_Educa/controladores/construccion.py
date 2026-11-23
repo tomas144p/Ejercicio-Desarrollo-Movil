@@ -33,7 +33,8 @@ from services.gestion_docente import ServicioGestion
 from services.ia.conversacion import ServicioTutorIA
 from services.sincronizacion import ServicioSincronizacion
 from services.tareas import EjecutorEnSegundoPlano
-
+from pathlib import Path
+from services.analytics_service import AnalyticsService
 
 def programador_kivy(funcion) -> None:
     """Ejecuta ``funcion`` en el hilo principal de Kivy en el próximo cuadro."""
@@ -50,6 +51,11 @@ class ConstruccionApp:
         Window.clearcolor = color(Paleta.PAPEL)
         Window.softinput_mode = "below_target"    # el teclado del celular no tapa el campo activo
         Tipografia.registrar()
+        # Inicializar servicio de analítica
+        raiz_proyecto = Path(__file__).resolve().parent.parent
+        self.analytics = AnalyticsService(
+        raiz_proyecto / "data" / "analytics_events.json"
+        )
 
         # 1. Servicios (capa de datos y lógica)
         self.configuracion = Configuracion.cargar()

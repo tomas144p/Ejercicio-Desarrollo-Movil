@@ -22,3 +22,12 @@ class TutorEducaApp(ConstruccionApp, ConexionApp, SesionApp, NavegacionApp, MDAp
 
 if __name__ == "__main__":
     TutorEducaApp().run()
+
+def on_start(self):
+    self.analytics.registrar_evento(
+        "app_abierta",
+        {
+            "plataforma": "desktop",
+            "aplicacion": "Tutor Educa"
+        }
+    )
